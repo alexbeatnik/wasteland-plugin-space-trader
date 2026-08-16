@@ -1,0 +1,39 @@
+{
+  "id": "space-trader",
+  "name": "Space Trader",
+  "version": "1.0.0",
+  "apiVersion": 5,
+  "description": "The Palm OS classic, played in the chat window. Trade between 140 star systems, watch the prices move with tech level, government and whatever crisis a planet is living through, and get jumped by pirates on the way. You make every move; the model reads the position each turn and advises — which good, how many, which system, and what it will cost you if the jump goes badly. It never spends your credits itself.",
+  "author": "alexbeatnik",
+  "icon": "icon.svg",
+  "main": "main.mjs",
+  "actions": ["space_trader", "space_trader_move"],
+  "services": [],
+  "settings": [
+    {
+      "key": "commander",
+      "type": "text",
+      "label": "Commander",
+      "placeholder": "the name a new game starts under"
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": "Language",
+      "options": [
+        { "value": "en", "label": "English" },
+        { "value": "uk", "label": "Ukrainian" }
+      ]
+    },
+    {
+      "key": "stance",
+      "type": "select",
+      "label": "Met in transit",
+      "options": [
+        { "value": "avoid", "label": "run, and submit to police" },
+        { "value": "fight", "label": "fight it out" }
+      ]
+    }
+  ],
+  "order": 70
+}

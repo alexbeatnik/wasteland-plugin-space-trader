@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "updated": "2026-08-16",
+  "plugins": [
+    {
+      "id": "space-trader",
+      "name": "Space Trader",
+      "version": "1.0.0",
+      "description": "The Palm OS classic, played in the chat window. Trade between 140 star systems, watch the prices move with tech level, government and whatever crisis a planet is living through, and get jumped by pirates on the way. You make every move; the model reads the position each turn and advises — which good, how many, which system, and what it will cost you if the jump goes badly. It never spends your credits itself.",
+      "author": "alexbeatnik",
+      "apiVersion": 5,
+      "kind": "code",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIgogICAgIHN0cm9rZT0iI2ZmYjAwMCIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJzcXVhcmUiPgogIDwhLS0gQSBjb3Vyc2UgcGxvdHRlZCBiZXR3ZWVuIHR3byBzdGFycyByYXRoZXIgdGhhbiBhIHNoaXA6IHRoZSBhcHAgdGludHMgaWNvbnMKICAgICAgIHRocm91Z2ggaXRzIG93biBwYWxldHRlLCBzbyBvcGVuIHN0cm9rZXMgc3Vydml2ZSB0aGUgZmlsdGVyIGJldHRlciB0aGFuIGEKICAgICAgIGZpbGxlZCBnbHlwaCwgYW5kIGEgaHVsbCBhdCAxLjFyZW0gaXMgYSBibG9iLiBUaGUgZGFzaGVkIGxlZyBpcyB3aGF0IHRoZQogICAgICAgZ2FtZSBpcyBhY3R1YWxseSBhYm91dCDigJQgdGhlIGp1bXAgYmV0d2VlbiB0d28gbWFya2V0cy4gLS0+CiAgPHBhdGggZD0iTTUgMTggTDE5IDYiIHN0cm9rZS1kYXNoYXJyYXk9IjIuNSAyLjUiIC8+CiAgPHBhdGggZD0iTTMgMjBoNHYtNEgzek0xNyA4aDRWNGgtNHoiIC8+CiAgPHBhdGggZD0iTTEzIDE3bDIgMk0xNSAxN2wtMiAyIiAvPgo8L3N2Zz4K",
+      "url": "https://github.com/alexbeatnik/-wasteland-plugin-space-trader/releases/download/plugins/space-trader-1.0.0.zip",
+      "sha256": "1780162dfa3e94558c2622dad1e7dd1f1aaa1797bbf21b36454a8f6ae04b3e7f",
+      "size": 98415
+    }
+  ]
+}
