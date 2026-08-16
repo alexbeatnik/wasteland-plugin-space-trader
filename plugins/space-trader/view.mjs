@@ -185,6 +185,40 @@ export function status(engine, state, t) {
 }
 
 /**
+ * The prices, for the model rather than for the screen.
+ *
+ * The table above is drawn for a person and is nearly useless as feedback: it
+ * is columns of spaces, and the model is not shown it at all. Without this the
+ * model has the position and no prices, which is the one combination that
+ * cannot answer "what should I carry" — and what it does instead is invent. A
+ * real session produced advice to trade "ореній", which is not a commodity in
+ * this game, and then told the user to press a "Show Market" button that does
+ * not exist, because from where the model sat there had to be one somewhere.
+ *
+ * Sent only for the turn that asked for the market, never in the briefing:
+ * eighteen goods every turn of every conversation is exactly the sort of thing
+ * the context budget is for.
+ */
+export function marketDigest(engine, state, t) {
+  const sys = engine.currentSystem(state);
+  const parts = [];
+  for (const id of engine.GOOD_IDS) {
+    const buy = sys.buyPrice?.[id] ?? 0;
+    const sell = sys.sellPrice?.[id] ?? 0;
+    const held = state.ship.cargo?.[id] ?? 0;
+    if (!buy && !sell && !held) continue;
+    const bits = [`${id}:`];
+    if (buy) bits.push(`buy ${buy} (${sys.qty?.[id] ?? 0} available)`);
+    else bits.push('not sold here');
+    if (sell) bits.push(`sells for ${sell}`);
+    else bits.push('not bought here');
+    if (held) bits.push(`${held} in hold`);
+    parts.push(bits.join(' '));
+  }
+  return `Prices at ${sys.nameId} (tech ${sys.techLevel}, ${sys.economyType}):\n${parts.join('\n')}`;
+}
+
+/**
  * What the model is told about the position, every turn.
  *
  * Deliberately not the market table. This is recomputed and re-sent on every

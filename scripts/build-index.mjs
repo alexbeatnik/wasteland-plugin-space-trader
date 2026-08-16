@@ -135,6 +135,16 @@ for (const name of readdirSync(pluginsRoot).sort()) {
     description: manifest.description ?? '',
     author: manifest.author ?? '',
     apiVersion: manifest.apiVersion ?? 1,
+    /**
+     * The heading it is listed under before it is installed.
+     *
+     * Copied out of the manifest into the index because the manifest is inside
+     * an archive nobody has downloaded, and the whole point of a heading is to
+     * help somebody decide whether to download it. Left out, the app files it
+     * under "other" — which is not an error anywhere and simply looks like the
+     * sections do not work.
+     */
+    category: manifest.category ?? '',
     // What the user is agreeing to run. A pack with no entry point is data the
     // app reads itself and needs no approval; anything with `main` is code.
     kind: manifest.main ? 'code' : 'theme',

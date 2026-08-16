@@ -19,7 +19,7 @@
  * between two questions has taken the game off them. It reads the position on
  * every turn and moves only what it was explicitly told to move.
  */
-import { briefing, chart, credits, destinations, market, messages, status } from './view.mjs';
+import { briefing, chart, credits, destinations, market, marketDigest, messages, status } from './view.mjs';
 
 /**
  * What the model is told.
@@ -46,24 +46,39 @@ turn. Never offer to explain the game instead of opening it.
 quests. Empty means status. Use it freely — these only look, and looking costs
 the user nothing.
 
+The game is TEXT, printed into this conversation. There is no game window, no
+menu, no tab and no button except the ones drawn directly under a screen you
+just produced. Never tell the user to click, press, open or find anything —
+there is nothing there to click. Anything they want done is a move below, or
+another screen above.
+
 MOVES — {"type":"space_trader_move","steps":"<move>"}
 
 buy 10 water · sell all ore · warp Omega · refuel · repair
+
+Fuel and repairs are NOT bought on the market — they are the two moves above,
+and no amount of looking at the commodity table will find them. "refuel" fills
+the tank; "repair" mends the hull.
 
 ONLY when the user named that move. You are their navigator, not the pilot:
 never buy, sell, jump or refuel because it looked like the right play, never
 make a move to "get things going", and never chain several because one implied
 the next. If you think a move is right, say so and let them tell you. A model
-that plays the game for somebody has taken it off them.
+that plays the game for somebody has taken it off them. When they DO name one —
+"refuel", "buy 10 water", "let's go to Nyle" — make it, without asking again.
 
-Asked what to do, answer from the position you were given and be concrete —
-which good, how many, which system, and what the risk is. That is what you are
-for here. The context you get each turn holds where they are, what they carry,
-what it cost and what is in range; the market and chart actions get you the
-prices and the neighbourhood when you need more.
+Asked what to trade, or what is worth carrying, open the market FIRST. You are
+not told prices otherwise, and a recommendation made without them invents
+commodities that are not in this game. The market action tells you what
+everything costs here; the chart tells you what is in range and what the fuel
+would be.
 
-Say what happened in one or two sentences. The screen is already drawn, with a
-button on the useful lines — do not read the tables back out.`;
+Asked what to do, answer from what you were actually given and be concrete —
+which good, how many, which system, what it costs and what the risk is.
+
+Say what happened in one or two sentences. The screen is already in front of
+the user — do not read the tables back out, and never describe a screen you did
+not produce this turn.`;
 
 /** How many warp targets to put on screen. A list long enough to scroll is not a choice. */
 const MAX_CHOICES = 8;
@@ -226,6 +241,10 @@ export function activate(ctx) {
     const held = engine.GOOD_IDS.filter((id) => (state.ship.cargo?.[id] ?? 0) > 0 && (sys.sellPrice?.[id] ?? 0) > 0);
     return {
       summary: `MARKET — ${sys.nameId}\n\n${market(engine, state, t)}`,
+      // The one screen whose feedback is worth its tokens: the table on screen
+      // is drawn for a person and the model is not shown it, so without this it
+      // has to guess what is for sale — and it does.
+      feedback: `[SPACE TRADER] The market is on the user's screen.\n${marketDigest(engine, state, t)}\n${briefing(engine, state)}`,
       // Selling what is already aboard is the one move whose whole result fits
       // in a sentence, so it is the one that belongs on a button.
       choices: held.slice(0, MAX_CHOICES).map((id) => ({
@@ -324,10 +343,13 @@ export function activate(ctx) {
                   ? questScreen(state)
                   : { summary: status(engine, state, t) };
 
+      // A screen's own feedback wins where it has one: the default says where
+      // the user is, and the market's says what things cost, which is a
+      // different and more useful answer.
       return {
         ok: true,
-        ...screen,
         feedback: `[SPACE TRADER] The ${want || 'status'} screen is on the user's screen.\n${briefing(engine, state)}`,
+        ...screen,
       };
     },
 
@@ -357,14 +379,26 @@ export function activate(ctx) {
       if (what === 'warp') {
         const target = state.systems[Number(argument)];
         if (!target) throw new Error('that system is not on the chart any more');
-        return await jump(state, target);
+        // The status bar takes one line, so a click gets the line and not the
+        // account. Whoever wants the account asks, and gets a card.
+        return (await jump(state, target)).line;
       }
 
       throw new Error('that button belongs to an older game');
     },
   });
 
-  /** Everything a jump involves, from either a button or an explicit move. */
+  /**
+   * Everything a jump involves, from either a button or an explicit move.
+   *
+   * Returns the one-line result *and* what happened on the way, separately,
+   * because the two callers can show different amounts. A button has only the
+   * status bar and gets the line; the move action has a card and gets both. An
+   * earlier version resolved the encounters, built the log and then returned
+   * only the line — so "2 met on the way" was the entire account of two
+   * gunfights, and whatever they cost showed up as a number quietly missing
+   * from the hull. Fought and unreported is worse than not fought.
+   */
   async function jump(state, target) {
     const stance = ctx.store.get('stance', 'avoid') === 'fight' ? 'fight' : 'avoid';
     const result = engine.warp(state, target.id);
@@ -374,18 +408,23 @@ export function activate(ctx) {
 
     const notes = [];
     for (const encounter of result.encounters ?? []) {
+      const who = t(`encounter.kind.${encounter.kind}`) || encounter.kind;
       const fought = fightItOut(state, encounter, stance);
-      notes.push(fought.log);
+      notes.push([`— ${who}:`, fought.log].filter(Boolean).join('\n'));
       // Nothing after this matters: the game is over and saving a dead
       // commander's next move would be the app arguing with the engine.
       if (state.ship.hull <= 0) break;
     }
     if (result.event) notes.push(t(result.event.bodyKey, result.event.params));
+    if (result.blackHole) notes.push(t('event.blackHole.body') || 'A singularity took the ship off course.');
 
     await write(state);
     const arrived = state.systems[result.arrivedAt ?? target.id];
     const met = (result.encounters ?? []).length;
-    return `Arrived at ${arrived.nameId}${met ? `, ${met} met on the way` : ''}. Fuel ${state.ship.fuel}, hull ${state.ship.hull}.`;
+    return {
+      line: `Arrived at ${arrived.nameId}${met ? `, ${met} met on the way` : ''}. Fuel ${state.ship.fuel}, hull ${state.ship.hull}.`,
+      log: notes.filter(Boolean).join('\n'),
+    };
   }
 
   ctx.action({
@@ -442,17 +481,20 @@ export function activate(ctx) {
       if (move === 'warp' || move === 'jump' || move === 'travel' || move === 'go') {
         const target = findSystem(state, rest.replace(/^to\s+/i, ''));
         if (!target) return refuse(state, `there is no system called "${rest}" on the chart`);
-        let line;
+        let jumped;
         try {
-          line = await jump(state, target);
+          jumped = await jump(state, target);
         } catch (err) {
           return refuse(state, err.message);
         }
         const dead = state.ship.hull <= 0;
+        // What happened on the way goes above where the ship ended up, because
+        // it is what explains the hull.
+        const account = [jumped.log, jumped.line].filter(Boolean).join('\n\n');
         return {
           ok: !dead,
-          summary: `${line}\n\n${dead ? 'The ship did not survive it.' : status(engine, state, t)}`,
-          feedback: `[SPACE TRADER] ${line}\n${dead ? 'The commander is dead; the game is over.' : briefing(engine, state)}`,
+          summary: `${account}\n\n${dead ? 'The ship did not survive it.' : status(engine, state, t)}`,
+          feedback: `[SPACE TRADER] ${account}\n${dead ? 'The commander is dead; the game is over.' : briefing(engine, state)}`,
         };
       }
 

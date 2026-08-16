@@ -228,6 +228,76 @@ test('a jump spends fuel and arrives somewhere else', async () => {
   assert.match(result.summary, /Arrived at /);
 });
 
+test('what happened on the way is reported, not just that it happened', async () => {
+  // Reported from a real game: "Arrived at Hesperia, 2 met on the way" was the
+  // entire account of two gunfights. The log was being built and thrown away,
+  // so whatever they cost showed up only as a number quietly missing from the
+  // hull. Fought and unreported is worse than not fought.
+  const app = await started();
+  let sawOne = false;
+
+  for (let hop = 0; hop < 25 && !sawOne; hop += 1) {
+    const state = JSON.parse(app.document.save);
+    if (state.ship.hull <= 0) break;
+    const chart = await app.show('chart');
+    if (!chart.choices?.length) {
+      await app.move('refuel');
+      continue;
+    }
+    const name = JSON.parse(app.document.save).systems[Number(chart.choices[0].id.split(':')[1])].nameId;
+    const result = await app.move(`warp ${name}`);
+    const met = /(\d+) met on the way/.exec(result.summary);
+    if (met && Number(met[1]) > 0) {
+      sawOne = true;
+      // Something more than the one-line arrival: whoever was met, and what
+      // came of it.
+      const above = result.summary.split('Arrived at')[0].trim();
+      assert.ok(above.length > 0, `nothing was said about the encounter:\n${result.summary}`);
+      assert.match(result.feedback, /SPACE TRADER/);
+    }
+  }
+  assert.ok(sawOne, 'no encounter happened in 25 jumps — the test proved nothing');
+});
+
+test('the market tells the model what things cost, not only that it is on screen', async () => {
+  // Without this the model has the position and no prices, which is the one
+  // combination that cannot answer "what should I carry". A real session
+  // produced advice to trade a commodity that does not exist in this game.
+  const app = await started();
+  const result = await app.show('market');
+  assert.match(result.feedback, /Prices at /);
+  assert.match(result.feedback, /water: /);
+  assert.match(result.feedback, /buy \d+ \(\d+ available\)|not sold here/);
+});
+
+test('the status screen does not pay for the price list', async () => {
+  // The digest is for the turn that asked for the market. Eighteen goods on
+  // every screen would be the briefing's mistake made twice.
+  const app = await started();
+  const result = await app.show('status');
+  assert.doesNotMatch(result.feedback, /Prices at /);
+});
+
+test('the prompt says the game is text with no controls to click', () => {
+  // The model told a user to press a "Show Market" button. There is no such
+  // button, and from where the model sat there had to be one somewhere.
+  const app = harness();
+  assert.match(app.prompt, /no game window, no\nmenu, no tab and no button/);
+  assert.match(app.prompt, /Never tell the user to click/);
+});
+
+test('the prompt says fuel is a move and not a commodity', () => {
+  // It opened the market and told the user to look for "Fuel" in the commodity
+  // table. Fuel is never on it; the planet always sells it through `refuel`.
+  const app = harness();
+  assert.match(app.prompt, /Fuel and repairs are NOT bought on the market/);
+});
+
+test('the prompt sends the model to the market before it advises on trade', () => {
+  const app = harness();
+  assert.match(app.prompt, /open the market FIRST/);
+});
+
 test('a system nobody has heard of is refused with its name in the sentence', async () => {
   const app = await started();
   const result = await app.move('warp Vogsphere');
