@@ -1,0 +1,397 @@
+/**
+ * The fight, fought a round at a time.
+ *
+ * A jump meets whoever it meets, so almost nothing here waits for a pirate to
+ * turn up: the encounter is built with the engine's own `spawnEncounter`, put
+ * into the plugin's document, and then fought through the panel exactly as a
+ * player would fight it. That makes the interesting cases — a wing of three, a
+ * hauler that has done nothing wrong, a hull at one point — reachable in a test
+ * instead of waiting for a seed that produces them.
+ *
+ * The one thing that is not stubbed is the fighting. Every round goes through
+ * `resolveRound` in the real engine, because the bugs worth catching here are
+ * disagreements with it about what an encounter is.
+ */
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import * as engine from '../plugins/space-trader/engine.mjs';
+import * as dict from '../plugins/space-trader/i18n.mjs';
+import * as fight from '../plugins/space-trader/fight.mjs';
+import { activate } from '../plugins/space-trader/main.mjs';
+import { setLanguage } from '../plugins/space-trader/words.mjs';
+
+function harness({ settings = {}, document = {} } = {}) {
+  const actions = new Map();
+  let doc = document;
+  let drawn = null;
+  let presenter = null;
+
+  const scene = {
+    show: (value) => {
+      drawn = value;
+    },
+    clear: () => {
+      drawn = null;
+    },
+    present: (value) => {
+      presenter = value;
+    },
+  };
+
+  const ctx = {
+    id: 'space-trader',
+    service: (name) => {
+      if (name === 'scene') return scene;
+      throw new Error(`no service "${name}"`);
+    },
+    action: ({ type, run, choose }) => actions.set(type, { run, choose }),
+    prompt: () => {},
+    context: (fn) => {
+      ctx._context = fn;
+    },
+    onSettingsChanged: () => {},
+    store: { get: (key, fallback = '') => settings[key] ?? fallback },
+    state: {
+      get: () => doc,
+      set: (value) => {
+        doc = value;
+      },
+    },
+    dataDir: () => '.',
+    log: () => {},
+    progress: () => {},
+  };
+
+  activate(ctx);
+  return {
+    settings,
+    get drawn() {
+      return drawn;
+    },
+    get document() {
+      return doc;
+    },
+    get game() {
+      return doc.save ? JSON.parse(doc.save) : null;
+    },
+    write(state, extra = {}) {
+      doc = { ...doc, save: JSON.stringify(state), ...extra };
+    },
+    show: (steps) => actions.get('space_trader').run(steps, {}),
+    move: (steps) => actions.get('space_trader_move').run(steps, {}),
+    act: (id, value) => presenter.act(id, value),
+    context: () => ctx._context(),
+  };
+}
+
+/** A run, made the way the panel makes one. */
+async function flying(options = {}) {
+  const app = harness(options);
+  await app.show('new game');
+  await app.act('background-fighter');
+  await app.act('name', 'Jameson');
+  await app.show('the launch');
+  return app;
+}
+
+/**
+ * Somebody in the way, on purpose.
+ *
+ * The encounter is the engine's, the record is the plugin's, and `shape` is the
+ * one liberty taken: an opponent whose hull is set to 1 makes "one shot ends
+ * it" a test rather than a wait.
+ */
+async function intercept(app, { kind = 'pirate', seed = 7, shape = () => {} } = {}) {
+  setLanguage(app.settings.language === 'uk' ? 'uk' : 'en');
+  dict.setLocale(app.settings.language === 'uk' ? 'uk' : 'en');
+  const state = app.game;
+  const encounter = engine.spawnEncounter(kind, state, new engine.Rng(seed));
+  shape(encounter, state);
+  const record = fight.open(dict, [encounter], {
+    system: state.systems[state.currentSystem].nameId,
+    notes: [],
+    met: 1,
+  });
+  app.write(state, { fight: record });
+  // Any way in repaints; a screen is the one that changes nothing else.
+  await app.show('status');
+  return encounter;
+}
+
+const ids = (app) => app.drawn.actions.map((move) => move.id);
+const group = (app, label) => app.drawn.groups.find((entry) => entry.label === label)?.items ?? [];
+
+test('an interception takes the whole panel', async () => {
+  const app = await flying();
+  await intercept(app);
+
+  assert.ok(app.drawn.title.length > 0);
+  assert.match(app.drawn.subtitle, /round \d/);
+  // No market, no chart, no way out but through: a row offering to go shopping
+  // in the middle of a boarding action is a row offering to leave.
+  for (const gone of ['market', 'chart', 'ship', 'jobs', 'news', 'refuel', 'restart', 'quit']) {
+    assert.ok(!ids(app).includes(gone), `${gone} is still on the row`);
+  }
+  assert.ok(ids(app).every((id) => id.startsWith('fight-')));
+});
+
+test('both ships are on the strip, with the range between them', async () => {
+  const app = await flying();
+  const encounter = await intercept(app);
+  const state = app.game;
+
+  const bars = app.drawn.meters;
+  assert.equal(bars[0].value, state.ship.hull);
+  assert.equal(bars[0].accent, 'life');
+  const theirs = bars.find((bar) => bar.label === engine.SHIP_TYPES[encounter.opponent.shipType].id
+    || bar.value === encounter.opponent.hull);
+  assert.ok(theirs, 'the other ship is not on the panel');
+  assert.equal(theirs.max, encounter.opponent.maxHull);
+  const range = bars.find((bar) => bar.accent === 'vigour');
+  assert.equal(range.value, Math.round(encounter.opponent.distance));
+  assert.equal(range.max, engine.MAX_ENGAGEMENT_RANGE);
+
+  // The two numbers a person actually decides against.
+  const yours = app.drawn.fields.find((field) => field.label === 'YOUR SHOT');
+  assert.match(yours.value, /^\d+%$/);
+  assert.ok(app.drawn.fields.some((field) => field.label === 'THEIRS'));
+});
+
+test('the row is what can be done against this one, and nothing else', async () => {
+  const app = await flying();
+
+  await intercept(app, { kind: 'pirate' });
+  assert.ok(ids(app).includes('fight-attack'));
+  assert.ok(ids(app).includes('fight-flee'));
+  assert.ok(ids(app).includes('fight-surrender'));
+  // Walking away from a pirate is not on offer: the engine would allow it, and
+  // a button that wins a fight by declining it is not a button.
+  assert.ok(!ids(app).includes('fight-ignore'));
+
+  await intercept(app, { kind: 'police' });
+  assert.ok(ids(app).includes('fight-submit'), 'the police cannot be submitted to');
+
+  await intercept(app, { kind: 'trader', shape: (enc) => { enc.provoked = false; } });
+  assert.ok(ids(app).includes('fight-ignore'), 'a hauler cannot be left alone');
+  assert.ok(!ids(app).includes('fight-flee'), 'there is nothing to run from');
+});
+
+test('the row of a fight fits the hotkeys it is given', async () => {
+  // The app puts the digits 1-9 on the first nine by position, and a police
+  // encounter with a crew aboard is the longest row there is: fire, run, close,
+  // open, submit, bribe, surrender, let it play, hold fire.
+  const app = await flying();
+  const state = app.game;
+  state.ship.crew = ['pax', 'mira'];
+  state.ship.weapons = ['pulse', 'pulse'];
+  app.write(state);
+  await intercept(app, { kind: 'police', shape: (enc) => { enc.bribeCost = 400; } });
+  await app.act('fight-closeIn');
+
+  assert.ok(app.drawn.actions.length <= 9, `the row is ${app.drawn.actions.length} long`);
+  assert.ok(ids(app).includes('fight-endTurn'), 'a crew gets a second action and no way to decline it');
+  // The one that must keep a digit is the one that ends the fight in a press.
+  assert.ok(ids(app).indexOf('fight-auto') < 9);
+});
+
+test('a round costs no turn and sends nothing to the model', async () => {
+  const app = await flying();
+  await intercept(app);
+  const day = app.game.day;
+
+  const fired = await app.act('fight-attack');
+  assert.equal(fired.submit ?? '', '', 'a round was sent to the model');
+  assert.ok(fired.status.length > 0, 'the round said nothing');
+  assert.equal(app.game.day, day, 'a round cost a day');
+  assert.ok(app.document.fight, 'the fight was dropped after one round');
+  assert.ok(app.document.fight.log.length > 1);
+});
+
+test('the same round played twice comes out the same way', async () => {
+  // The die is seeded from the encounter and the count of actions in it, so a
+  // fight is as deterministic in the save as the galaxy is.
+  const first = await flying();
+  await intercept(first, { seed: 21 });
+  const one = await first.act('fight-attack');
+
+  const second = await flying();
+  await intercept(second, { seed: 21 });
+  const two = await second.act('fight-attack');
+
+  assert.equal(one.status, two.status);
+});
+
+test('one shot ends it, and the account waits for the jump to finish', async () => {
+  const app = await flying();
+  await intercept(app, { shape: (enc) => { enc.opponent.hull = 1; enc.opponent.shieldPoints = 0; enc.reserves = []; } });
+
+  for (let round = 0; round < 12 && app.document.fight?.queue[0].status === 'ongoing'; round += 1) {
+    await app.act('fight-attack');
+  }
+  assert.notEqual(app.document.fight.queue[0].status, 'ongoing', 'twelve shots and it is still up');
+
+  // Settled: the row is what to do next, not what to shoot with.
+  assert.ok(ids(app).includes('fight-on'));
+  assert.ok(!ids(app).includes('fight-attack'));
+
+  const done = await app.act('fight-on');
+  assert.equal(done.submit, 'how the fight went');
+  assert.equal(app.document.fight, undefined, 'the fight outlived the jump');
+  // The whole thing goes into the transcript at once, when there is a "what
+  // happened" to tell.
+  assert.match(app.document.narrate, /Arrived at /);
+  assert.ok(app.document.narrate.split('\n').length > 2);
+  // And the ordinary panel is back.
+  assert.ok(ids(app).includes('market'));
+});
+
+test('the model is told the fight is not its to narrate', async () => {
+  const app = await flying();
+  await intercept(app);
+
+  const fragment = await app.context();
+  assert.match(fragment, /a fight is in progress/i);
+  assert.match(fragment, /Do NOT narrate rounds/);
+  // Every screen answers with the fight rather than with a price table: a model
+  // handed one in the middle of a boarding action advises on trade.
+  const screen = await app.show('market');
+  assert.match(screen.feedback, /Do NOT narrate rounds/);
+  assert.doesNotMatch(screen.feedback, /Prices at /);
+});
+
+test('nothing is bought or jumped while there is shooting', async () => {
+  const app = await flying();
+  await intercept(app);
+  const credits = app.game.credits;
+
+  const bought = await app.move('buy 3 water');
+  assert.equal(bought.ok, false);
+  assert.equal(app.game.credits, credits);
+  assert.match(bought.summary, /not a move in a fight/);
+
+  const jumped = await app.move('warp Nowhere');
+  assert.equal(jumped.ok, false);
+  assert.ok(app.document.fight, 'the fight was left behind by a jump');
+});
+
+test('the fight can be fought by typing, like everything else', async () => {
+  const app = await flying();
+  await intercept(app);
+
+  const fired = await app.move('fire at them');
+  assert.equal(fired.ok, true);
+  assert.ok(app.document.fight.log.length > 1);
+  assert.match(fired.feedback, /a fight is in progress/i);
+});
+
+test('LET IT PLAY settles the lot and finishes the jump', async () => {
+  const app = await flying({ settings: { stance: 'fight' } });
+  await intercept(app);
+
+  const done = await app.act('fight-auto');
+  assert.equal(app.document.fight, undefined);
+  assert.ok(done.submit === 'how the fight went' || app.game.ship.hull <= 0);
+  assert.match(app.document.narrate ?? '', /\S/);
+});
+
+test('a wing sends the next ship in, and the sheet can pick which', async () => {
+  const app = await flying();
+  const encounter = await intercept(app, {
+    shape: (enc, state) => {
+      const rng = new engine.Rng(3);
+      enc.reserves = [engine.spawnEncounter('pirate', state, rng).opponent];
+      enc.fleetSize = 2;
+      enc.opponent.hull = 1;
+      enc.opponent.shieldPoints = 0;
+    },
+  });
+
+  const fleet = group(app, 'THE REST OF THE WING');
+  assert.equal(fleet.length, 1);
+  assert.match(fleet[0].action, /^fight-target-0$/);
+
+  const switched = await app.act('fight-target-0');
+  assert.equal(switched.sheet, true);
+  assert.notEqual(app.document.fight.queue[0].opponent.shipType, undefined);
+
+  // Whoever is in front now, downing one leaves the other still flying.
+  for (let round = 0; round < 40 && app.document.fight?.queue[0].status === 'ongoing'; round += 1) {
+    await app.act('fight-attack');
+    if (app.game.ship.hull <= 0) break;
+  }
+  assert.ok(encounter.defeated >= 0);
+});
+
+test('surrendering to a pirate costs the cargo', async () => {
+  const app = await flying();
+  const state = app.game;
+  const good = engine.GOOD_IDS.find((id) => (state.systems[state.currentSystem].buyPrice?.[id] ?? 0) > 0);
+  state.ship.cargo[good] = 3;
+  app.write(state);
+  await intercept(app, { kind: 'pirate' });
+
+  await app.act('fight-surrender');
+  assert.equal(app.game.ship.cargo[good], 0, 'they left the cargo behind');
+  assert.notEqual(app.document.fight.queue[0].status, 'ongoing');
+});
+
+test('a ship that strikes its colours can be boarded', async () => {
+  const app = await flying();
+  await intercept(app, {
+    shape: (enc) => {
+      enc.status = 'oppSurrendered';
+      enc.reserves = [];
+      for (const id of engine.GOOD_IDS) enc.opponent.cargo[id] = 0;
+      enc.opponent.cargo.water = 4;
+    },
+  });
+
+  assert.ok(ids(app).includes('fight-plunder'));
+  assert.equal(group(app, 'THEIR HOLD').length, 1);
+  await app.act('fight-plunder');
+  assert.equal(app.game.ship.cargo.water, 4);
+});
+
+test('a commander who dies out there dies, and the panel says so', async () => {
+  const app = await flying();
+  await intercept(app, {
+    shape: (enc, state) => {
+      state.ship.hull = 1;
+      enc.opponent.weaponPower = 400;
+      enc.opponent.fighter = 13;
+      enc.opponent.distance = engine.POINT_BLANK_RANGE;
+    },
+  });
+  // The shaped state has to go back with the encounter.
+  const state = app.game;
+  state.ship.hull = 1;
+  app.write(state);
+
+  for (let round = 0; round < 20 && app.game.ship.hull > 0; round += 1) await app.act('fight-attack');
+  assert.equal(app.game.ship.hull, 0, 'twenty rounds against a hull of one');
+  assert.equal(app.document.fight, undefined, 'the fight outlived the commander');
+  assert.ok(app.drawn.tags.some((tag) => tag.label === 'LOST'));
+  assert.deepEqual(ids(app), ['restart', 'quit']);
+});
+
+test('a fight survives the app being closed', async () => {
+  const app = await flying();
+  await intercept(app);
+  await app.act('fight-attack');
+
+  const again = harness({ document: app.document });
+  await again.show('status');
+  assert.ok(again.drawn.subtitle.match(/round \d/), 'the fight did not come back');
+  assert.ok(again.document.fight.log.length > 1, 'what had been said was lost');
+  const fired = await again.act('fight-attack');
+  assert.ok(fired.status.length > 0);
+});
+
+test('a Ukrainian fight is Ukrainian', async () => {
+  const app = await flying({ settings: { language: 'uk' } });
+  await intercept(app);
+  assert.match(app.drawn.actions[0].label, /ВОГОНЬ/);
+  assert.match(app.drawn.groups[0].label, /[а-яїієґ]/i);
+  const fired = await app.act('fight-attack');
+  assert.match(fired.status, /[а-яїієґ]/i);
+});

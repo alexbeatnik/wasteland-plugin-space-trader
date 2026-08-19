@@ -1,10 +1,17 @@
 /**
- * The plugin, driven the way the host drives it.
+ * The plugin, played by typing.
  *
  * `activate` is called with the same shape the app hands a plugin — a store, a
  * state document, an `action` registry — and the handlers are then run directly.
  * That is the whole contract, so a test that holds it exercises everything
  * except the IPC, and it runs in plain Node with no Electron and no window.
+ *
+ * Deliberately *without* the panel. `tests/panel.test.mjs` covers the scene, and
+ * the point of this file is the half of the game that has to keep working when
+ * there is no scene at all: every screen and every move reachable by typing a
+ * sentence, exactly as before there were buttons. The host this plugin declares
+ * always has one, so that branch is a fallback rather than a supported
+ * configuration — but a fallback nobody tests is a fallback that is broken.
  *
  * The engine is the real one. Stubbing it would leave the interesting half of
  * this plugin untested: nearly every bug found while writing it was a
@@ -25,7 +32,8 @@ function harness({ settings = {} } = {}) {
 
   const ctx = {
     id: 'space-trader',
-    apiVersion: 5,
+    apiVersion: 11,
+    // No panel here, on purpose. See the note at the top of the file.
     service: (name) => {
       throw new Error(`no service "${name}" was declared`);
     },
@@ -78,7 +86,9 @@ function harness({ settings = {} } = {}) {
 
 /** A game in progress, which almost every test below needs. */
 async function started() {
-  const app = harness({ settings: { commander: 'Jameson' } });
+  const app = harness();
+  // With no panel there are no cards to press, so the run is made at once
+  // rather than on a question that could never be answered.
   await app.show('new');
   return app;
 }
@@ -94,6 +104,16 @@ test('the prompt names the refusal it exists to prevent', () => {
   // games" unless the fragment says in words that the refusal is wrong here.
   assert.match(app.prompt, /can't play games/i);
   assert.match(app.prompt, /space_trader_move/);
+});
+
+test("the prompt says the panel is the user's, not a thing to recite", () => {
+  // The opposite of the mistake it used to prevent. There were no controls at
+  // all, and the model invented a "Show Market" button; now there is a row of
+  // them, and the failure to guard against is a model reciting a row it cannot
+  // see — "press 2" when 2 is something else this turn.
+  const app = harness();
+  assert.match(app.prompt, /never name a button/);
+  assert.match(app.prompt, /Everything on\nthe row can also be typed/);
 });
 
 test('the prompt forbids the model making moves of its own', () => {
@@ -221,8 +241,11 @@ test('a jump spends fuel and arrives somewhere else', async () => {
   const target = Number(chart.choices[0].id.split(':')[1]);
 
   const result = await app.move(`warp ${before.systems[target].nameId}`);
-  assert.equal(result.ok, true);
   const after = JSON.parse(app.document.save);
+  // A pirate can end a Flea on its first jump, and that is a real outcome
+  // rather than a failed move: the turn is `ok: false` only because the game is
+  // over. Everything else about the jump has to be true either way.
+  assert.equal(result.ok, after.ship.hull > 0);
   assert.notEqual(after.currentSystem, before.currentSystem);
   assert.ok(after.ship.fuel < before.ship.fuel, 'the jump cost no fuel');
   assert.match(result.summary, /Arrived at /);
@@ -233,30 +256,39 @@ test('what happened on the way is reported, not just that it happened', async ()
   // entire account of two gunfights. The log was being built and thrown away,
   // so whatever they cost showed up only as a number quietly missing from the
   // hull. Fought and unreported is worse than not fought.
-  const app = await started();
+  //
+  // With no panel there is nobody to press the moves, so the exchange resolves
+  // under the posture from the settings and the whole of it comes back at once.
   let sawOne = false;
 
-  for (let hop = 0; hop < 25 && !sawOne; hop += 1) {
-    const state = JSON.parse(app.document.save);
-    if (state.ship.hull <= 0) break;
-    const chart = await app.show('chart');
-    if (!chart.choices?.length) {
-      await app.move('refuel');
-      continue;
-    }
-    const name = JSON.parse(app.document.save).systems[Number(chart.choices[0].id.split(':')[1])].nameId;
-    const result = await app.move(`warp ${name}`);
-    const met = /(\d+) met on the way/.exec(result.summary);
-    if (met && Number(met[1]) > 0) {
+  // Three runs of twenty jumps rather than one of twenty-five: a run can end
+  // stranded with no credits for fuel, or in a wreck, and neither of those is
+  // evidence about reporting. A galaxy that produced no encounter at all in
+  // sixty jumps would be a different bug.
+  for (let attempt = 0; attempt < 3 && !sawOne; attempt += 1) {
+    const app = await started();
+    for (let hop = 0; hop < 20 && !sawOne; hop += 1) {
+      if (JSON.parse(app.document.save).ship.hull <= 0) break;
+      const chart = await app.show('chart');
+      if (!chart.choices?.length) {
+        const refuelled = await app.move('refuel');
+        if (!refuelled.ok) break;
+        continue;
+      }
+      const name = JSON.parse(app.document.save).systems[Number(chart.choices[0].id.split(':')[1])].nameId;
+      const result = await app.move(`warp ${name}`);
+      const met = /(\d+) met on the way/.exec(result.summary);
+      if (!met || Number(met[1]) === 0) continue;
+
       sawOne = true;
       // Something more than the one-line arrival: whoever was met, and what
       // came of it.
       const above = result.summary.split('Arrived at')[0].trim();
-      assert.ok(above.length > 0, `nothing was said about the encounter:\n${result.summary}`);
+      assert.ok(above.length > 0, `nothing was said about the encounter — ${result.summary}`);
       assert.match(result.feedback, /SPACE TRADER/);
     }
   }
-  assert.ok(sawOne, 'no encounter happened in 25 jumps — the test proved nothing');
+  assert.ok(sawOne, 'no encounter happened in sixty jumps — the test proved nothing');
 });
 
 test('the market tells the model what things cost, not only that it is on screen', async () => {
@@ -276,14 +308,6 @@ test('the status screen does not pay for the price list', async () => {
   const app = await started();
   const result = await app.show('status');
   assert.doesNotMatch(result.feedback, /Prices at /);
-});
-
-test('the prompt says the game is text with no controls to click', () => {
-  // The model told a user to press a "Show Market" button. There is no such
-  // button, and from where the model sat there had to be one somewhere.
-  const app = harness();
-  assert.match(app.prompt, /no game window, no\nmenu, no tab and no button/);
-  assert.match(app.prompt, /Never tell the user to click/);
 });
 
 test('the prompt says fuel is a move and not a commodity', () => {
@@ -345,12 +369,16 @@ test('the per-turn context is empty until a game exists, and terse afterwards', 
 
   await app.show('new');
   const briefing = await app.context();
+  // The language is told every turn rather than left to the prompt fragment,
+  // which is fixed at activation: a language changed mid-session would
+  // otherwise not reach the model until a restart.
+  assert.match(briefing, /^Answer the user in English\./);
   assert.match(briefing, /SPACE TRADER — a game is in progress/);
   assert.match(briefing, /Docked at /);
   assert.match(briefing, /In range: /);
   // This is re-sent on every turn of every conversation and counted against the
   // window, including conversations that have nothing to do with the game.
-  assert.ok(briefing.split('\n').length <= 8, 'the briefing has grown into a screen');
+  assert.ok(briefing.split('\n').length <= 9, 'the briefing has grown into a screen');
   assert.ok(briefing.length < 500, `the briefing is ${briefing.length} characters`);
 });
 
@@ -362,10 +390,67 @@ test('a save that cannot be parsed is reported, not thrown at the turn', async (
   assert.match(app.logged.join('\n'), /could not be read/);
 });
 
-test('Ukrainian is a setting, and the screens answer in it', async () => {
-  const app = harness({ settings: { language: 'uk', commander: 'Джеймсон' } });
-  await app.show('new');
+test('Ukrainian is a setting, and both halves of a screen answer in it', async () => {
+  const app = harness({ settings: { language: 'uk' } });
+  await app.show('new game Джеймсон');
   const result = await app.show('market');
-  // The engine's own dictionary, not a second translation kept here.
+  // Two dictionaries meet on this screen: the commodity names come from the
+  // game's own, bundled with the engine, and the column headings from the
+  // plugin's. Until they were split, one of the two was always English.
+  assert.match(result.summary, /ТОВАР/, 'the table is still headed in English');
   assert.match(result.summary, /[а-яїієґ]/i, 'nothing on the market screen is in Ukrainian');
+  assert.match(result.summary, /РИНОК — /);
+});
+
+test('a Ukrainian game understands a move typed in either language', async () => {
+  const app = harness({ settings: { language: 'uk' } });
+  await app.show('new');
+  const state = JSON.parse(app.document.save);
+  const good = Object.keys(state.ship.cargo).find((id) => (state.systems[state.currentSystem].buyPrice?.[id] ?? 0) > 0);
+
+  const bought = await app.move(`купити 2 ${good}`);
+  assert.equal(bought.ok, true, `купити was not understood: ${bought.summary}`);
+  assert.equal(JSON.parse(app.document.save).ship.cargo[good], 2);
+  // And English still works, because a model asked to relay a move sometimes
+  // translates it on the way through.
+  const more = await app.move(`buy 1 ${good}`);
+  assert.equal(more.ok, true);
+  assert.equal(JSON.parse(app.document.save).ship.cargo[good], 3);
+});
+
+test('with no panel a new game is made at once, because there are no cards to press', async () => {
+  const app = harness();
+  const result = await app.show('new game Aurora');
+  assert.equal(result.ok, true);
+  assert.equal(JSON.parse(app.document.save).commanderName, 'Aurora');
+  // The model is handed the facts to introduce it with, rather than told to
+  // introduce something and left to invent what.
+  assert.match(result.feedback, /Introduce it in two or three sentences/);
+  assert.match(result.feedback, /cargo bays/);
+});
+
+test('asking for the news does not start a new game', async () => {
+  // `^new` matches "news". The news screen made a commander instead, and every
+  // screen after it answered "choose a background".
+  const app = await started();
+  const before = JSON.parse(app.document.save).seed;
+  await app.show('news');
+  assert.equal(JSON.parse(app.document.save).seed, before, 'the news started a new game');
+});
+
+test('the news screen prints what is being reported, and does not throw on it', async () => {
+  // A news item is a headline and a body under two keys, not a message with
+  // parameters. Read as a message, the dictionary was called with `undefined`
+  // and threw — on the first planet that had any news at all, which is every
+  // planet after the first jump.
+  const app = await started();
+  const state = JSON.parse(app.document.save);
+  const sys = state.systems[state.currentSystem];
+  sys.news = [{ id: 'coldSnap', headlineKey: 'news.coldSnap.headline', bodyKey: 'news.coldSnap.body', tone: 'bad' }];
+  app.document.save = JSON.stringify(state);
+
+  const result = await app.show('news');
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(result.summary, /undefined/);
+  assert.doesNotMatch(result.summary, /news\.coldSnap/);
 });

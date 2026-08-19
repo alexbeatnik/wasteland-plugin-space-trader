@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "updated": "2026-08-16",
+  "updated": "2026-08-19",
   "plugins": [
     {
       "id": "space-trader",
       "name": "Space Trader",
-      "version": "1.1.0",
-      "description": "The Palm OS classic, played in the chat window. Trade between 140 star systems, watch the prices move with tech level, government and whatever crisis a planet is living through, and get jumped by pirates on the way. You make every move; the model reads the position each turn and advises — which good, how many, which system, and what it will cost you if the jump goes badly. It never spends your credits itself.",
+      "version": "2.1.0",
+      "description": "The Palm OS classic, played in the chat window, from a panel with the ship's bars, a star chart you press to jump, and the market behind a button. Trade between 140 star systems, watch the prices move with tech level, government and whatever crisis a planet is living through, and fight off the pirates who stop you on the way — a round at a time, with the range, the odds and the shields all on screen. You make every move; the model reads the position each turn and advises, and never spends your credits or fires your guns itself.",
       "author": "alexbeatnik",
-      "apiVersion": 5,
+      "apiVersion": 11,
       "category": "games",
       "kind": "code",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIg0KICAgICBzdHJva2U9IiNmZmIwMDAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIj4NCiAgPCEtLSBBIGNvdXJzZSBwbG90dGVkIGJldHdlZW4gdHdvIHN0YXJzIHJhdGhlciB0aGFuIGEgc2hpcDogdGhlIGFwcCB0aW50cyBpY29ucw0KICAgICAgIHRocm91Z2ggaXRzIG93biBwYWxldHRlLCBzbyBvcGVuIHN0cm9rZXMgc3Vydml2ZSB0aGUgZmlsdGVyIGJldHRlciB0aGFuIGENCiAgICAgICBmaWxsZWQgZ2x5cGgsIGFuZCBhIGh1bGwgYXQgMS4xcmVtIGlzIGEgYmxvYi4gVGhlIGRhc2hlZCBsZWcgaXMgd2hhdCB0aGUNCiAgICAgICBnYW1lIGlzIGFjdHVhbGx5IGFib3V0IOKAlCB0aGUganVtcCBiZXR3ZWVuIHR3byBtYXJrZXRzLiAtLT4NCiAgPHBhdGggZD0iTTUgMTggTDE5IDYiIHN0cm9rZS1kYXNoYXJyYXk9IjIuNSAyLjUiIC8+DQogIDxwYXRoIGQ9Ik0zIDIwaDR2LTRIM3pNMTcgOGg0VjRoLTR6IiAvPg0KICA8cGF0aCBkPSJNMTMgMTdsMiAyTTE1IDE3bC0yIDIiIC8+DQo8L3N2Zz4NCg==",
-      "url": "https://github.com/alexbeatnik/-wasteland-plugin-space-trader/releases/download/plugins/space-trader-1.1.0.zip",
-      "sha256": "4585a8a278b338bc1468cf58227db5f8f6bbf8996488beab266007cf2562a907",
-      "size": 100293
+      "url": "https://github.com/alexbeatnik/wasteland-plugin-space-trader/releases/download/plugins/space-trader-2.1.0.zip",
+      "sha256": "f16fe4ad462f6019bccbb2a8a724bd4d20967d5816d682d91fef5d1820a5329b",
+      "size": 145657
     }
   ]
 }

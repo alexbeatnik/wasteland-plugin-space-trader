@@ -1,20 +1,23 @@
 /**
  * The screens, as text.
  *
- * Space Trader on Palm drew a chart of stars and an encounter with a ship on
- * it, and the remake draws both in SVG. Neither can come here: the chat window
- * runs the app's own code and nothing else, so a plugin contributes no markup
- * and no script — an action's result is a string in a `<pre>` and a row of
- * buttons under it.
+ * There is a drawn panel now — bars, a star chart with pressable systems, lists
+ * behind a sheet — and this is deliberately still here. The panel is the
+ * instrument board: it is current, it is glanceable, and it is gone the moment
+ * the game is closed. The transcript is the record. A market table printed into
+ * the conversation is still there twenty turns later when somebody wants to
+ * know what ore fetched at Nyle, and it is the only form of the game a model can
+ * be shown at all.
  *
- * That is less than a canvas and more than a log. A monospace block is a grid,
- * and a grid is a chart: the local starfield is drawn where the systems
- * actually are, from the same `x`/`y` the SVG uses. What it cannot be is
- * clickable, so every target on it is repeated as a button underneath.
+ * So the two are not rivals: the panel answers "what is true now", the text
+ * answers "what happened, and what did it cost". Both are built from the same
+ * save, which is what stops them describing two different runs.
  *
- * Everything here is pure — state in, string out — which is what lets the
- * tests drive it without a game running.
+ * Everything here is pure — state in, string out — which is what lets the tests
+ * drive it without a game running. `dict` is the *game's* dictionary, bundled
+ * with the engine; `t` is the plugin's own. See the note in `words.mjs`.
  */
+import { credits as money, group as digits, t } from './words.mjs';
 
 /** Column width of a drawn chart, in characters. */
 const CHART_W = 44;
@@ -38,8 +41,22 @@ export function meter(value, max, width = 10) {
   return `[${'#'.repeat(filled)}${'.'.repeat(width - filled)}]`;
 }
 
-export function credits(value) {
-  return `${Number(value ?? 0).toLocaleString('en-US')} cr`;
+/**
+ * The tech level's name, which the game indexes by id rather than by number.
+ *
+ * Exported because the panel needs the same answer, and two copies of a lookup
+ * that falls back on a missing key is two places for it to fall back
+ * differently.
+ */
+export function techName(engine, dict, level) {
+  const id = engine.TECH_LEVEL_IDS[level];
+  const name = id ? dict.techLevelName(id) : '';
+  return name && !name.startsWith('tech.') ? name : String(level);
+}
+
+export function economyName(engine, dict, sys) {
+  const name = dict.economyName(sys.economyType);
+  return name && !name.startsWith('economy.') ? name : sys.economyType;
 }
 
 /**
@@ -90,7 +107,7 @@ export function chart(engine, state, { width = CHART_W, height = CHART_H } = {})
   const lines = [`┌${rule}┐`];
   for (const row of grid) lines.push(`│${row.join('')}│`);
   lines.push(`└${rule}┘`);
-  lines.push('@ you   O visited, in range   o in range   . seen');
+  lines.push(t('screen.chart.legend'));
   return lines.join('\n');
 }
 
@@ -109,23 +126,21 @@ export function destinations(engine, state, limit = 8) {
     .slice(0, limit);
 }
 
-/** One line describing a system, as much as has been learned about it. */
-export function systemLine(sys, { known = true } = {}) {
-  if (!known && !sys.visited) return `${pad(sys.nameId, 12)}  unvisited`;
-  return `${pad(sys.nameId, 12)}  tech ${sys.techLevel}  ${pad(sys.economyType, 11)} ${sys.politics}`;
-}
-
 /**
  * The market, as the table the game shows.
  *
  * Prices the planet does not offer are left blank rather than zeroed: a zero in
  * a price column reads as free, and "not sold here" is the more useful fact.
  */
-export function market(engine, state, t) {
+export function market(engine, dict, state) {
   const sys = engine.currentSystem(state);
   const ship = state.ship;
   const rows = [
-    `${pad('COMMODITY', 14)}${num('AVAIL', 6)}${num('BUY', 7)}${num('SELL', 7)}${num('HOLD', 6)}`,
+    pad(t('screen.market.commodity'), 14) +
+      num(t('screen.market.avail'), 6) +
+      num(t('screen.market.buy'), 7) +
+      num(t('screen.market.sell'), 7) +
+      num(t('screen.market.held'), 6),
     '─'.repeat(40),
   ];
 
@@ -138,7 +153,7 @@ export function market(engine, state, t) {
     // a line: eighteen goods is a screenful, and most planets deal in ten.
     if (!buy && !sell && !held) continue;
     rows.push(
-      pad(t(`good.${id}`), 14) +
+      pad(dict.goodName(id), 14) +
         num(buy ? available : '—', 6) +
         num(buy || '—', 7) +
         num(sell || '—', 7) +
@@ -148,37 +163,44 @@ export function market(engine, state, t) {
 
   const bays = engine.totalCargoBays(ship);
   rows.push('─'.repeat(40));
-  rows.push(`hold ${engine.usedCargoBays(ship)}/${bays}   ${credits(state.credits)}`);
+  rows.push(t('screen.market.foot', { used: engine.usedCargoBays(ship), total: bays, credits: money(state.credits) }));
   return rows.join('\n');
 }
 
 /** Where the ship is, what it is, and what it is carrying. */
-export function status(engine, state, t) {
+export function status(engine, dict, state) {
   const sys = engine.currentSystem(state);
   const ship = state.ship;
   const fuel = engine.maxFuel(ship);
   const hull = engine.maxHull(ship);
 
   const lines = [
-    `${state.commanderName} — day ${state.day}`,
-    `docked at ${sys.nameId}   tech ${sys.techLevel}   ${sys.economyType}   ${sys.politics}`,
-    sys.status && sys.status !== 'uneventful' ? `local situation: ${t(`status.${sys.status}`)}` : '',
+    t('screen.status.head', { commander: state.commanderName, day: state.day }),
+    t('screen.status.docked', {
+      system: sys.nameId,
+      tech: sys.techLevel,
+      economy: economyName(engine, dict, sys),
+      politics: dict.politicsName(sys.politics),
+    }),
+    sys.status && sys.status !== 'uneventful' ? t('screen.status.situation', { situation: dict.statusName(sys.status) }) : '',
     '',
-    `${pad(t(`shipType.${ship.type}`) || ship.type, 14)} hull ${meter(ship.hull, hull)} ${ship.hull}/${hull}`,
-    `${pad('fuel', 14)}      ${meter(ship.fuel, fuel)} ${ship.fuel}/${fuel} parsecs`,
-    `${pad('hold', 14)}      ${engine.usedCargoBays(ship)}/${engine.totalCargoBays(ship)} bays`,
-    `${pad('credits', 14)}      ${credits(state.credits)}${state.debt ? `   debt ${credits(state.debt)}` : ''}`,
+    `${pad(dict.shipName(ship.type), 14)} ${pad(t('screen.status.hull'), 5)} ${meter(ship.hull, hull)} ${ship.hull}/${hull}`,
+    `${pad(t('screen.status.fuel'), 14)}       ${meter(ship.fuel, fuel)} ${t('screen.status.parsecs', { fuel: ship.fuel, max: fuel })}`,
+    `${pad(t('screen.status.hold'), 14)}       ${t('screen.status.bays', { used: engine.usedCargoBays(ship), total: engine.totalCargoBays(ship) })}`,
+    `${pad(t('screen.status.credits'), 14)}       ${money(state.credits)}${state.debt ? `   ${t('screen.status.debt', { amount: money(state.debt) })}` : ''}`,
   ].filter((line) => line !== '');
 
   const cargo = engine.GOOD_IDS.filter((id) => (ship.cargo?.[id] ?? 0) > 0);
   if (cargo.length) {
-    lines.push('', 'in the hold:');
+    lines.push('', t('screen.status.cargo'));
     for (const id of cargo) {
       const held = ship.cargo[id];
       const paid = state.buyingPrice?.[id] ?? 0;
-      const here = engine.currentSystem(state).sellPrice?.[id] ?? 0;
-      const margin = here && paid ? `  sells here at ${here} (paid ${Math.round(paid / Math.max(1, held))})` : '';
-      lines.push(`  ${pad(t(`good.${id}`), 14)} ${num(held, 3)}${margin}`);
+      const here = sys.sellPrice?.[id] ?? 0;
+      const margin = here && paid
+        ? `  ${t('screen.status.cargoLine', { price: digits(here), paid: digits(Math.round(paid / Math.max(1, held))) })}`
+        : '';
+      lines.push(`  ${pad(dict.goodName(id), 14)} ${num(held, 3)}${margin}`);
     }
   }
   return lines.join('\n');
@@ -192,14 +214,19 @@ export function status(engine, state, t) {
  * model has the position and no prices, which is the one combination that
  * cannot answer "what should I carry" — and what it does instead is invent. A
  * real session produced advice to trade "ореній", which is not a commodity in
- * this game, and then told the user to press a "Show Market" button that does
+ * this game, and then told the user to press a "Show Market" button that did
  * not exist, because from where the model sat there had to be one somewhere.
  *
  * Sent only for the turn that asked for the market, never in the briefing:
  * eighteen goods every turn of every conversation is exactly the sort of thing
  * the context budget is for.
+ *
+ * Deliberately in ids and English rather than in the player's language: this is
+ * read by a model and then handed back as `buy 10 water`, and a round trip
+ * through a translation is where "ore" becomes something the parser has never
+ * heard of.
  */
-export function marketDigest(engine, state, t) {
+export function marketDigest(engine, dict, state) {
   const sys = engine.currentSystem(state);
   const parts = [];
   for (const id of engine.GOOD_IDS) {
@@ -208,14 +235,19 @@ export function marketDigest(engine, state, t) {
     const held = state.ship.cargo?.[id] ?? 0;
     if (!buy && !sell && !held) continue;
     const bits = [`${id}:`];
-    if (buy) bits.push(`buy ${buy} (${sys.qty?.[id] ?? 0} available)`);
-    else bits.push('not sold here');
-    if (sell) bits.push(`sells for ${sell}`);
-    else bits.push('not bought here');
-    if (held) bits.push(`${held} in hold`);
+    if (buy) bits.push(t('screen.market.forSale', { price: buy, available: sys.qty?.[id] ?? 0 }));
+    else bits.push(t('screen.market.notSold'));
+    if (sell) bits.push(t('screen.market.sellsFor', { price: sell }));
+    else bits.push(t('screen.market.notBought'));
+    if (held) bits.push(t('screen.market.inHold', { held }));
     parts.push(bits.join(' '));
   }
-  return `Prices at ${sys.nameId} (tech ${sys.techLevel}, ${sys.economyType}):\n${parts.join('\n')}`;
+  const head = t('screen.market.prices', {
+    system: sys.nameId,
+    tech: sys.techLevel,
+    economy: economyName(engine, dict, sys),
+  });
+  return `${head}\n${parts.join('\n')}`;
 }
 
 /**
@@ -227,31 +259,69 @@ export function marketDigest(engine, state, t) {
  * still lets the model answer "where am I, and can I afford that". The tables
  * are what the actions are for.
  */
-export function briefing(engine, state) {
+export function briefing(engine, dict, state) {
   const sys = engine.currentSystem(state);
   const ship = state.ship;
   const cargo = engine.GOOD_IDS.filter((id) => (ship.cargo?.[id] ?? 0) > 0)
     .map((id) => `${id} ${ship.cargo[id]}`)
     .join(', ');
+  const inRange = destinations(engine, state, 6)
+    .map((d) => `${d.sys.nameId} (${d.fuel})`)
+    .join(', ');
 
   return [
-    'SPACE TRADER — a game is in progress.',
-    `Commander ${state.commanderName}, day ${state.day}, ${state.credits} cr` +
-      (state.debt ? `, debt ${state.debt} cr` : ''),
-    `Docked at ${sys.nameId} (tech ${sys.techLevel}, ${sys.economyType}, ${sys.politics})`,
-    `Ship ${ship.type}: hull ${ship.hull}/${engine.maxHull(ship)}, fuel ${ship.fuel}/${engine.maxFuel(ship)} parsecs, ` +
-      `hold ${engine.usedCargoBays(ship)}/${engine.totalCargoBays(ship)}`,
-    cargo ? `Carrying: ${cargo}` : 'Hold empty.',
-    `In range: ${destinations(engine, state, 6)
-      .map((d) => `${d.sys.nameId} (${d.fuel})`)
-      .join(', ') || 'nowhere — out of fuel'}`,
+    t('brief.head'),
+    state.debt
+      ? t('brief.commanderDebt', { commander: state.commanderName, day: state.day, credits: state.credits, debt: state.debt })
+      : t('brief.commander', { commander: state.commanderName, day: state.day, credits: state.credits }),
+    t('brief.docked', {
+      system: sys.nameId,
+      tech: sys.techLevel,
+      economy: economyName(engine, dict, sys),
+      politics: dict.politicsName(sys.politics),
+    }),
+    t('brief.ship', {
+      ship: dict.shipName(ship.type),
+      hull: ship.hull,
+      maxHull: engine.maxHull(ship),
+      fuel: ship.fuel,
+      maxFuel: engine.maxFuel(ship),
+      used: engine.usedCargoBays(ship),
+      total: engine.totalCargoBays(ship),
+    }),
+    cargo ? t('brief.carrying', { cargo }) : t('brief.empty'),
+    inRange ? t('brief.inRange', { systems: inRange }) : t('brief.stranded'),
   ].join('\n');
 }
 
+/**
+ * The facts a run opens on, written out for the model to retell.
+ *
+ * The model used to be told to "say so briefly" about a new game and given the
+ * commander's name and nothing else — no system, no ship, no fuel — and a model
+ * holding a hole that size fills it. The opening is composed here, out of the
+ * run itself, and the model only retells it.
+ *
+ * The position comes from `briefing()` rather than being written out again,
+ * because a run can be introduced late: pressing a button before the model has
+ * said anything makes the move first, and an opening that had "day 1" and the
+ * starting purse baked into it would then be describing a game that had already
+ * moved on. Only what cannot change — who is flying, and what they are flying —
+ * is stated here.
+ */
+export function openingBrief(engine, dict, state, background) {
+  return `${t('brief.opening', {
+    commander: state.commanderName,
+    background,
+    bays: engine.totalCargoBays(state.ship),
+  })}
+${briefing(engine, dict, state)}`;
+}
+
 /** The engine answers in message keys; this is what turns a batch into prose. */
-export function messages(list, t) {
+export function messages(list, dict) {
   return (list ?? [])
-    .map((entry) => (typeof entry === 'string' ? entry : t(entry.key, entry.params)))
+    .map((entry) => (typeof entry === 'string' ? entry : dict.renderMessage(entry.key, entry.params)))
     .filter(Boolean)
     .join('\n');
 }

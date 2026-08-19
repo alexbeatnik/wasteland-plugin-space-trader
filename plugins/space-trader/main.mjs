@@ -2,88 +2,118 @@
  * Space Trader, played in the chat window.
  *
  * The game itself is not here. `engine.mjs` is Pieter Spronck's economy as the
- * modern remake implements it — the galaxy, the market, the encounters — bundled
- * out of that project untouched, so a rule argued over there is the rule here
- * too. This file is the part that could not come with it: how a game with a
- * star chart and a gunfight is played through a transcript.
+ * modern remake implements it — the galaxy, the market, the encounters —
+ * bundled out of that project untouched, so a rule argued over there is the
+ * rule here too. This file is the part that could not come with it: how a game
+ * with a star chart and a gunfight is played through a transcript.
  *
- * What the app gives a plugin to draw with is one string and a row of buttons.
- * That decides nearly everything below. A screen is the result of an action, so
- * a screen needs a turn — the user says something, a card is drawn. A button
- * cannot draw a second card, because `choose` returns a line for the status bar
- * and nothing else, so buttons are for committing a move whose result fits in a
- * sentence, never for stepping through one.
+ * It used to be played only through one. The app gave a plugin a string and a
+ * row of buttons under a card, so every screen was a turn, a fight had to
+ * resolve in one go because nothing could redraw between rounds, and the chart
+ * was drawn in characters. That is all still here and still works. What is new
+ * is the panel: the `scene` service gives a game bars, a sheet of lists, a
+ * board with pressable systems and one field to type a number into, none of
+ * which costs a turn or a token. Looking at the market is no longer a thing you
+ * ask a language model to do for you.
  *
- * The model advises and does not play. That is a decision, not a limitation of
- * the wiring: the moves are the user's, and a model that spends their credits
- * between two questions has taken the game off them. It reads the position on
- * every turn and moves only what it was explicitly told to move.
+ * The division stayed the same, because it was never about what the app could
+ * draw. The moves are the user's. The model reads the position every turn and
+ * advises; it moves only what it was explicitly told to move, and it can no
+ * more press a button than it can spend the credits behind one.
  */
-import { briefing, chart, credits, destinations, market, marketDigest, messages, status } from './view.mjs';
+import { readdirSync } from 'node:fs';
+// A namespace rather than named imports: half of what it exports is called the
+// same as something here — `moves`, `scene`, `current` — and `fight.moves()`
+// says which one it is at every call site.
+import * as fight from './fight.mjs';
+import {
+  affordable,
+  backgroundFor,
+  backgroundName,
+  BACKGROUNDS,
+  isWrecked,
+  setupScene,
+  snapshot,
+} from './panel.mjs';
+import { credits as money, patterns, setLanguage, t } from './words.mjs';
+import {
+  briefing,
+  chart,
+  destinations,
+  market,
+  marketDigest,
+  messages,
+  openingBrief,
+  status,
+} from './view.mjs';
 
-/**
- * What the model is told.
- *
- * The first paragraph is the one that matters, and it is not describing the
- * action — it is naming the sentence the model will otherwise produce. Asked to
- * play, a model holding this answers "I can't run interactive games, but I can
- * describe one", exactly as one holding the lookup action answers "I have no
- * access to real-time information". The game is running in the same window as
- * the reply; the refusal is false and has to be called false.
- *
- * The second half is the opposite instruction, and it is there for the opposite
- * failure: a model that has understood it can play tends to start playing.
- */
-const PROMPT = `
-SPACE TRADER — {"type":"space_trader","steps":"<screen>"}
-
-A playable game of Space Trader runs in this window. "I can't play games",
-"I can't run an interactive game" and "I can only describe it" are all wrong
-here — this action draws the real thing, on a real saved game, and it costs one
-turn. Never offer to explain the game instead of opening it.
-
-"steps" picks a screen: new (start a game), status, market, chart, ship, news,
-quests. Empty means status. Use it freely — these only look, and looking costs
-the user nothing.
-
-The game is TEXT, printed into this conversation. There is no game window, no
-menu, no tab and no button except the ones drawn directly under a screen you
-just produced. Never tell the user to click, press, open or find anything —
-there is nothing there to click. Anything they want done is a move below, or
-another screen above.
-
-MOVES — {"type":"space_trader_move","steps":"<move>"}
-
-buy 10 water · sell all ore · warp Omega · refuel · repair
-
-Fuel and repairs are NOT bought on the market — they are the two moves above,
-and no amount of looking at the commodity table will find them. "refuel" fills
-the tank; "repair" mends the hull.
-
-ONLY when the user named that move. You are their navigator, not the pilot:
-never buy, sell, jump or refuel because it looked like the right play, never
-make a move to "get things going", and never chain several because one implied
-the next. If you think a move is right, say so and let them tell you. A model
-that plays the game for somebody has taken it off them. When they DO name one —
-"refuel", "buy 10 water", "let's go to Nyle" — make it, without asking again.
-
-Asked what to trade, or what is worth carrying, open the market FIRST. You are
-not told prices otherwise, and a recommendation made without them invents
-commodities that are not in this game. The market action tells you what
-everything costs here; the chart tells you what is in range and what the fuel
-would be.
-
-Asked what to do, answer from what you were actually given and be concrete —
-which good, how many, which system, what it costs and what the risk is.
-
-Say what happened in one or two sentences. The screen is already in front of
-the user — do not read the tables back out, and never describe a screen you did
-not produce this turn.`;
-
-/** How many warp targets to put on screen. A list long enough to scroll is not a choice. */
+/** A line break, named because writing one as an escape here keeps going wrong. */
+const BREAK = String.fromCharCode(10);
+/** How many warp targets to put under a chart card. A list long enough to scroll is not a choice. */
 const MAX_CHOICES = 8;
 /** Log entries kept in the save. The game keeps every one; a save is not an archive. */
 const KEEP_LOG = 60;
+/** A picture for the chart, if the player put one in the data directory. */
+const CHART_NAMES = ['chart.png', 'chart.jpg', 'chart.jpeg', 'chart.webp', 'chart.gif'];
+
+/**
+ * The buttons of a fight, and the moves they stand for.
+ *
+ * A table rather than a chain of ifs because the same ten moves arrive two
+ * ways — pressed here, typed there — and the engine takes one vocabulary. The
+ * ids carry a prefix so a stale press from a fight three jumps ago cannot land
+ * on the market's row.
+ */
+const FIGHT_ACTIONS = {
+  'fight-attack': 'attack',
+  'fight-flee': 'flee',
+  'fight-closeIn': 'closeIn',
+  'fight-openRange': 'openRange',
+  'fight-submit': 'submit',
+  'fight-bribe': 'bribe',
+  'fight-surrender': 'surrender',
+  'fight-ignore': 'ignore',
+  'fight-endTurn': 'endTurn',
+  'fight-plunder': 'plunder',
+};
+
+/**
+ * The same moves, typed.
+ *
+ * Everything on the row is a sentence as well — that promise is not suspended
+ * because there is shooting. In order, because "close" and "closeIn" would
+ * otherwise be decided by whichever pattern was tried first.
+ */
+const FIGHT_WORDS = [
+  ['fight.attack', 'attack'],
+  ['fight.flee', 'flee'],
+  ['fight.closeIn', 'closeIn'],
+  ['fight.openRange', 'openRange'],
+  ['fight.submit', 'submit'],
+  ['fight.bribe', 'bribe'],
+  ['fight.surrender', 'surrender'],
+  ['fight.ignore', 'ignore'],
+  ['fight.plunder', 'plunder'],
+  ['fight.endTurn', 'endTurn'],
+];
+
+/**
+ * Which door the sheet is open on, and whether NEW GAME has been armed.
+ *
+ * Module scope rather than the save: both are where the player last looked, not
+ * anything about the run, and a fresh start on the market after a restart is
+ * the right answer rather than a lost one.
+ */
+let sheetView = 'market';
+let armedRestart = false;
+/**
+ * The trade waiting for a number.
+ *
+ * Set when a commodity row is pressed and cleared when the field answers. Also
+ * module scope: a half-asked question is not part of a saved game, and a run
+ * reopened tomorrow should not come back with a dialog open over it.
+ */
+let askingAmount = null;
 
 export function activate(ctx) {
   /**
@@ -92,32 +122,34 @@ export function activate(ctx) {
    * session that never opens the game should not pay for it at boot.
    */
   let engine = null;
-  let i18n = null;
+  let dict = null;
+
+  /** The language, read live, so a change takes effect on the next turn. */
+  const speak = () => {
+    const code = ctx.store.get('language', 'en') === 'uk' ? 'uk' : 'en';
+    setLanguage(code);
+    dict?.setLocale(code);
+    return code;
+  };
 
   async function load() {
     if (!engine) {
       engine = await import('./engine.mjs');
-      i18n = await import('./i18n.mjs');
+      dict = await import('./i18n.mjs');
     }
-    i18n.setLocale(ctx.store.get('language', 'en') === 'uk' ? 'uk' : 'en');
+    speak();
     return engine;
   }
-
-  /** Translate an engine key. Falls back to the key, which is better than blank. */
-  const t = (key, params) => {
-    const text = i18n?.t?.(key, params);
-    return text && text !== key ? text : '';
-  };
 
   /**
    * The save.
    *
-   * Held as a *string* inside the one document rather than as the object
-   * itself, because the store pretty-prints what it is given and a galaxy of
-   * 140 systems indents to 425 KB against a 1 MB cap — with the log and the
-   * quest list still to grow into it. Stringified first it is 249 KB and stays
-   * there. The cost is a second parse, which is nothing next to running out of
-   * room to save a game somebody is in the middle of.
+   * The game is held as a *string* inside the plugin's document rather than as
+   * the object itself, because the store pretty-prints what it is given and a
+   * galaxy of 140 systems indents to 425 KB against a 1 MB cap — with the log
+   * and the quest list still to grow into it. Stringified first it is 249 KB
+   * and stays there. The cost is a second parse, which is nothing next to
+   * running out of room to save a game somebody is in the middle of.
    */
   async function read() {
     const doc = await ctx.state.get();
@@ -130,12 +162,87 @@ export function activate(ctx) {
     }
   }
 
-  async function write(state) {
+  /** The game, packed the way the document holds it. */
+  function pack(state) {
     // The engine keeps every line it ever logged, newest first. Worth showing,
     // not worth carrying forever: this is the one thing in a save with no
     // ceiling on it.
-    const trimmed = { ...state, log: (state.log ?? []).slice(0, KEEP_LOG) };
-    await ctx.state.set({ save: JSON.stringify(trimmed), day: state.day, commander: state.commanderName });
+    return JSON.stringify({ ...state, log: (state.log ?? []).slice(0, KEEP_LOG) });
+  }
+
+  /** Write the document and put what was written on the panel, in that order. */
+  async function save(document) {
+    await ctx.state.set(document);
+    await paint(document);
+    return document;
+  }
+
+  /** The document with a game in it, keeping everything else the document held. */
+  function withGame(doc, state, extra = {}) {
+    return {
+      ...doc,
+      save: pack(state),
+      day: state.day,
+      commander: state.commanderName,
+      ...extra,
+    };
+  }
+
+  /* ---------- the panel ---------- */
+
+  /**
+   * A picture under the chart, if the player put one there.
+   *
+   * None is shipped, deliberately: the markers, the names and the jump legs are
+   * drawn by the app from the run's own data, and a painted starfield would be
+   * showing a galaxy that is generated afresh every game. What a background can
+   * do is make it pleasant, so any file the player drops in is used.
+   *
+   * `ctx.dataDir()` and not the plugin's own directory: that one is deleted and
+   * rewritten on every update, and a picture somebody generated must survive a
+   * version bump.
+   */
+  function chartPicture() {
+    try {
+      const present = new Set(readdirSync(ctx.dataDir()));
+      return CHART_NAMES.find((name) => present.has(name)) ?? '';
+    } catch {
+      // No data directory yet is the ordinary case, not a fault.
+      return '';
+    }
+  }
+
+  let scene = null;
+
+  async function paint(doc) {
+    if (!scene || !engine) return;
+    if (doc?.setup) {
+      scene.show(setupScene(doc.setup));
+      return;
+    }
+    if (!doc?.save || doc.closed === true) {
+      scene.clear();
+      return;
+    }
+    let state;
+    try {
+      state = JSON.parse(doc.save);
+    } catch {
+      scene.clear();
+      return;
+    }
+    // A fight takes the whole panel. There is no market where the shooting is,
+    // and a row of moves offering one would be a row offering to leave.
+    if (doc.fight && fight.current(doc.fight)) {
+      scene.show(fight.scene(engine, dict, state, doc.fight, { stance: stance() }));
+      return;
+    }
+    scene.show(snapshot(engine, dict, state, {
+      sheetView,
+      armedRestart,
+      image: chartPicture(),
+      amount: askingAmount,
+    }));
   }
 
   /* ---------- reading what the user asked for ---------- */
@@ -146,13 +253,13 @@ export function activate(ctx) {
     if (!wanted) return null;
     for (const id of engine.GOOD_IDS) {
       if (id.toLowerCase() === wanted) return id;
-      const name = t(`good.${id}`).toLowerCase();
-      if (name && name === wanted) return id;
+      const name = dict.goodName(id).toLowerCase();
+      if (name === wanted) return id;
     }
     // A prefix, so "narco" and "spring" reach the good they obviously mean.
     for (const id of engine.GOOD_IDS) {
-      const name = t(`good.${id}`).toLowerCase();
-      if (id.toLowerCase().startsWith(wanted) || (name && name.startsWith(wanted))) return id;
+      const name = dict.goodName(id).toLowerCase();
+      if (id.toLowerCase().startsWith(wanted) || name.startsWith(wanted)) return id;
     }
     return null;
   }
@@ -169,42 +276,162 @@ export function activate(ctx) {
     );
   }
 
-  /* ---------- encounters ---------- */
+  /* ---------- travelling, and whoever is out there ---------- */
+
+  /** What the AUTO button and a panel-less host fight under. */
+  const stance = () => (ctx.store.get('stance', 'avoid') === 'fight' ? 'fight' : 'avoid');
 
   /**
-   * Play an encounter out to its end under one posture.
+   * A jump, up to the point where somebody intercepts it.
    *
-   * A round at a time with a button between them is what the game does and what
-   * this medium cannot: `choose` cannot draw the next round, so a fight fought
-   * that way would report itself entirely on the status bar, one line at a time.
-   * So the posture is chosen before the jump and the whole exchange resolves at
-   * once, with every round's own words kept — which is the part worth reading
-   * afterwards anyway.
-   *
-   * Bounded because it is a loop around somebody else's state machine. An
-   * encounter that will not settle is a bug in the engine or in this posture,
-   * and either way an app that stops responding is the worse of the two
-   * outcomes.
+   * The engine moves the ship, spends the day, rolls for what is met on the way
+   * and leaves those encounters ongoing — so by the time this returns the ship
+   * has arrived and the shooting has not started. Everything below decides who
+   * does the shooting.
    */
-  function fightItOut(state, encounter, stance) {
-    const rng = new engine.Rng((state.seed ^ (state.day * 2654435761) ^ encounter.round) >>> 0);
-    const before = encounter.messages.length;
+  function beginJump(state, target) {
+    const result = engine.warp(state, target.id);
+    if (!result.ok) throw new Error(dict.t(result.error) || t('refuse.jumpRefused'));
+    const system = state.systems[result.arrivedAt ?? target.id];
+    const notes = [];
+    if (result.event) notes.push(dict.t(result.event.bodyKey));
+    if (result.blackHole) notes.push(dict.t('event.blackHole.body'));
+    const encounters = result.encounters ?? [];
+    return { encounters, arrival: { system: system.nameId, notes, met: encounters.length } };
+  }
 
-    for (let round = 0; round < 60 && encounter.status === 'ongoing'; round += 1) {
-      let move = stance === 'fight' ? 'attack' : 'flee';
-      // Nobody is chasing a hauler, so there is nothing to run from: the way
-      // past one is to leave it alone. The engine refuses `flee` here outright,
-      // and refusing it silently would spin this loop to its bound.
-      if (engine.isPeacefulTrader(encounter)) move = 'ignore';
-      else if (encounter.kind === 'police' && stance !== 'fight') move = 'submit';
-      engine.resolveRound(state, encounter, move, rng);
+  /** Where the ship ended up, in the one line a status bar can hold. */
+  function arrivedLine(state, arrival) {
+    return t(arrival.met ? 'screen.arrivedMet' : 'screen.arrived', {
+      system: arrival.system,
+      met: arrival.met,
+      fuel: state.ship.fuel,
+      hull: state.ship.hull,
+    });
+  }
+
+  /**
+   * The whole account of a jump.
+   *
+   * What was said out there, then anything else that happened on the way, then
+   * where the ship ended up — in that order, because the fight is what explains
+   * the hull in the last line.
+   */
+  function jumpAccount(state, record) {
+    return [fight.account(record), ...(record.arrival.notes ?? []), arrivedLine(state, record.arrival)]
+      .filter(Boolean)
+      .join(`${BREAK}${BREAK}`);
+  }
+
+  /** Every ship met on one leg, settled under the standing posture. */
+  function resolveAll(state, record) {
+    while (fight.current(record) && !isWrecked(state)) {
+      fight.auto(engine, dict, state, record, stance());
+      if (!fight.advance(dict, record)) break;
+    }
+  }
+
+  /**
+   * A jump, and whatever it ran into.
+   *
+   * With a panel, an interception stops here: the record goes into the document
+   * and the player fights it a round at a time. Without one there is nothing to
+   * press, so the older behaviour stands and the whole exchange resolves under
+   * the posture from the settings — a fight fought by typing would be a model
+   * turn per round.
+   */
+  async function travel(doc, state, target) {
+    const { encounters, arrival } = beginJump(state, target);
+    const record = fight.open(dict, encounters, arrival);
+
+    if (scene && fight.current(record) && !isWrecked(state)) {
+      await save(withGame(doc, state, { fight: record }));
+      const encounter = fight.current(record);
+      return {
+        fighting: true,
+        line: t('fight.intercepted', { who: fight.who(dict, encounter), ship: fight.theirShip(dict, encounter) }),
+        account: fight.account(record),
+      };
     }
 
-    return {
-      status: encounter.status,
-      log: messages(encounter.messages.slice(before), t),
-    };
+    resolveAll(state, record);
+    return { fighting: false, line: arrivedLine(state, arrival), account: jumpAccount(state, record) };
   }
+
+  /**
+   * The shooting is over: the arrival goes into the transcript and the panel
+   * comes back.
+   *
+   * `narrate` is what a press leaves behind for the model to read out on the
+   * turn its submitted words start. A fight fought by typing is already inside
+   * such a turn and is answering with the account itself, so it asks for none —
+   * left set, it would be reported a second time by whatever ran next.
+   */
+  async function endFight(doc, state, record, { narrate = true } = {}) {
+    const account = jumpAccount(state, record);
+    const next = withGame(doc, state, { fight: undefined, narrate: narrate ? account : undefined });
+    delete next.fight;
+    if (!narrate) delete next.narrate;
+    await save(next);
+    return { account, line: arrivedLine(state, record.arrival) };
+  }
+
+  /**
+   * A fight driven by typing rather than by pressing.
+   *
+   * Slower and dearer — this is inside a turn, so every round costs one — and
+   * it exists because everything on the row is a sentence as well. A player
+   * who would rather write "shoot them" than press 1 is not doing anything
+   * wrong.
+   */
+  async function fightByWord(doc, state, said) {
+    const record = doc.fight;
+    const encounter = fight.current(record);
+    const word = said.trim().toLowerCase();
+    const tell = (text, ok = true) => ({
+      ok,
+      summary: text,
+      feedback: `${t('note.fightOn')}\n${fight.situation(engine, dict, state, record)}`,
+    });
+
+    if (patterns('fight.auto').test(word)) {
+      resolveAll(state, record);
+      const ended = await endFight(doc, state, record, { narrate: false });
+      return {
+        ok: !isWrecked(state),
+        summary: `${ended.account}\n\n${isWrecked(state) ? t('ui.dead') : status(engine, dict, state)}`,
+        feedback: `${ended.account}\n${isWrecked(state) ? t('note.dead') : briefing(engine, dict, state)}`,
+      };
+    }
+
+    // Settled, and the player is asking to move on rather than to shoot.
+    if (fight.settled(encounter) && patterns('fight.on').test(word)) {
+      const opening = fight.advance(dict, record);
+      if (opening) {
+        await save(withGame(doc, state, { fight: record }));
+        return tell(opening.join('\n') || t('fight.nextShip'));
+      }
+      const ended = await endFight(doc, state, record, { narrate: false });
+      return {
+        ok: true,
+        summary: `${ended.account}\n\n${status(engine, dict, state)}`,
+        feedback: `${ended.account}\n${briefing(engine, dict, state)}`,
+      };
+    }
+
+    const chosen = FIGHT_WORDS.find(([key]) => patterns(key).test(word));
+    if (!chosen) return tell(t('refuse.notAFightMove', { what: said }), false);
+    if (fight.settled(encounter) && chosen[1] !== 'plunder') return tell(t('fight.alreadySettled'), false);
+
+    const lines = fight.resolve(engine, dict, state, record, chosen[1]);
+    if (isWrecked(state)) {
+      const ended = await endFight(doc, state, record, { narrate: false });
+      return { ok: false, summary: `${ended.account}\n\n${t('ui.dead')}`, feedback: `${ended.account}\n${t('note.dead')}` };
+    }
+    await save(withGame(doc, state, { fight: record }));
+    return tell(lines.join('\n') || t('fight.nothingHappened'));
+  }
+
 
   /* ---------- screens ---------- */
 
@@ -212,26 +439,26 @@ export function activate(ctx) {
     const targets = destinations(engine, state, MAX_CHOICES);
     const here = engine.currentSystem(state);
     const lines = [
-      `CHART — from ${here.nameId}, range ${engine.maxRange(state)} parsecs`,
+      t('screen.chart.head', { system: here.nameId, parsecs: engine.maxRange(state) }),
       '',
       chart(engine, state),
       '',
-      'IN RANGE',
+      t('screen.chart.inRange'),
     ];
     for (const { sys, fuel, distance } of targets) {
       lines.push(
         `  ${sys.nameId.padEnd(12)} ${String(Math.round(distance)).padStart(3)} pc   ${String(fuel).padStart(2)} fuel   ` +
-          (sys.visited ? `tech ${sys.techLevel}  ${sys.economyType}` : 'never visited'),
+          (sys.visited ? `tech ${sys.techLevel}  ${sys.economyType}` : t('screen.chart.unvisited')),
       );
     }
-    if (!targets.length) lines.push('  nothing in range — refuel first');
+    if (!targets.length) lines.push(t('screen.chart.nothing'));
 
     return {
       summary: lines.join('\n'),
       choices: targets.map(({ sys, fuel }) => ({
         id: `warp:${sys.id}`,
-        label: `Warp to ${sys.nameId}`,
-        note: `${fuel} fuel${sys.visited ? '' : ' · unvisited'}`,
+        label: t('screen.chart.warp', { system: sys.nameId }),
+        note: t('screen.chart.fuel', { fuel }),
       })),
     };
   }
@@ -240,40 +467,42 @@ export function activate(ctx) {
     const sys = engine.currentSystem(state);
     const held = engine.GOOD_IDS.filter((id) => (state.ship.cargo?.[id] ?? 0) > 0 && (sys.sellPrice?.[id] ?? 0) > 0);
     return {
-      summary: `MARKET — ${sys.nameId}\n\n${market(engine, state, t)}`,
+      summary: `${t('screen.market.head', { system: sys.nameId })}\n\n${market(engine, dict, state)}`,
       // The one screen whose feedback is worth its tokens: the table on screen
       // is drawn for a person and the model is not shown it, so without this it
       // has to guess what is for sale — and it does.
-      feedback: `[SPACE TRADER] The market is on the user's screen.\n${marketDigest(engine, state, t)}\n${briefing(engine, state)}`,
-      // Selling what is already aboard is the one move whose whole result fits
-      // in a sentence, so it is the one that belongs on a button.
+      feedback: `${t('note.screen', { screen: 'market' })}\n${marketDigest(engine, dict, state)}\n${briefing(engine, dict, state)}`,
       choices: held.slice(0, MAX_CHOICES).map((id) => ({
         id: `sellall:${id}`,
-        label: `Sell all ${t(`good.${id}`) || id}`,
-        note: `${state.ship.cargo[id]} × ${sys.sellPrice[id]} cr`,
+        label: t('screen.sellAll', { good: dict.goodName(id) }),
+        note: t('screen.sellAllNote', { held: state.ship.cargo[id], price: sys.sellPrice[id] }),
       })),
     };
   }
 
   function newsScreen(state) {
     const sys = engine.currentSystem(state);
-    const items = (sys.news ?? []).map((item) => `• ${t(item.key, item.params) || item.key}`);
+    // Headline and body under two keys, not a message with parameters. The
+    // screen that printed these before read them as messages and threw on the
+    // first planet that had any news at all.
+    const items = (sys.news ?? []).map((item) => `• ${dict.t(item.headlineKey)}\n  ${dict.t(item.bodyKey)}`);
     return {
-      summary: `${sys.nameId.toUpperCase()} — day ${state.day}\n\n${items.join('\n') || 'Nothing is being reported here.'}`,
+      summary: `${t('screen.news.head', { system: sys.nameId.toUpperCase(), day: state.day })}\n\n${items.join('\n') || t('screen.news.nothing')}`,
     };
   }
 
   function shipScreen(state) {
     const ship = state.ship;
+    const names = (list, name) => (list ?? []).map((id) => name(id)).join(', ') || t('screen.ship.none');
     const lines = [
-      `SHIP — ${t(`shipType.${ship.type}`) || ship.type}`,
+      t('screen.ship.head', { ship: dict.shipName(ship.type) }),
       '',
-      status(engine, state, t),
+      status(engine, dict, state),
       '',
-      `weapons  ${(ship.weapons ?? []).map((w) => t(`weapon.${w}`) || w).join(', ') || 'none'}`,
-      `shields  ${(ship.shields ?? []).map((s) => t(`shield.${s}`) || s).join(', ') || 'none'}`,
-      `gadgets  ${(ship.gadgets ?? []).map((g) => t(`gadget.${g}`) || g).join(', ') || 'none'}`,
-      `crew     ${(ship.crew ?? []).length} aboard, ${engine.freeQuarters(ship)} quarters free`,
+      `${t('screen.ship.weapons')}  ${names(ship.weapons, dict.weaponName)}`,
+      `${t('screen.ship.shields')}  ${names(ship.shields, dict.shieldName)}`,
+      `${t('screen.ship.gadgets')}  ${names(ship.gadgets, dict.gadgetName)}`,
+      `${t('screen.ship.crew')}     ${t('screen.ship.crewValue', { aboard: (ship.crew ?? []).length, free: engine.freeQuarters(ship) })}`,
     ];
     return { summary: lines.join('\n') };
   }
@@ -288,244 +517,86 @@ export function activate(ctx) {
    * a second, worse translation.
    */
   function questScreen(state) {
-    const open = (state.quests ?? []).filter((q) => q.status === 'active');
-    const lines = open.map((q) => {
-      const system = state.systems[q.targetSystem]?.nameId ?? '';
-      const params = { system, amount: q.amount ?? 0, good: t(`good.${q.good}`) || q.good || '', bounty: q.bountyName ?? '', passenger: q.passengerName ?? '' };
-      const text = t(`quest.desc.${q.type}`, params) || t(`quest.type.${q.type}`) || q.type;
-      return `• ${text}   (${q.reward} cr)`;
+    const lines = engine.activeQuests(state).map((quest) => {
+      const text = dict.renderMessage(`quest.desc.${quest.type}`, engine.questParams(state, quest));
+      return t('screen.jobs.line', {
+        text: text.startsWith('quest.desc.') ? dict.t(`quest.type.${quest.type}`) : text,
+        reward: quest.reward,
+      });
     });
-    return { summary: `JOBS\n\n${lines.join('\n') || 'Nothing accepted. The job board is on the planet.'}` };
+    return { summary: `${t('screen.jobs.head')}\n\n${lines.join('\n') || t('screen.jobs.nothing')}` };
+  }
+
+  /* ---------- starting and stopping a run ---------- */
+
+  /**
+   * Make the commander and write the save, from a name however it arrived.
+   *
+   * Two ways in — the panel's field and a name typed at the composer — and one
+   * run made either way. Kept together because the interesting part is the same
+   * for both: a name is not something to interpret, so only the control
+   * characters and the field separator come out of it.
+   */
+  async function makeCommander(doc, { background, name, told = false }) {
+    const clean = [...String(name ?? '')]
+      .map((ch) => (ch === '|' || ch < ' ' ? ' ' : ch))
+      .join('')
+      .trim()
+      .slice(0, 24) || t('setup.name.nameless');
+    const chosen = backgroundFor(background) ?? BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)];
+    const state = engine.newGame({ commanderName: clean, skills: { ...chosen.skills } });
+    // `opening` means "nobody has been introduced to this run yet", so it is not
+    // set when the reply carrying it out is the very one being written.
+    const next = withGame({}, state, { background: chosen.key, opening: !told });
+    await save(next);
+    return { state, background: chosen.key };
+  }
+
+  /**
+   * What the model is told about a run that has just begun.
+   *
+   * Two jobs. The first lines wall off whatever came before — a new game starts
+   * in the same conversation as the old, and a small model reads the transcript
+   * above and keeps playing that one. The rest hands over the facts, because a
+   * note saying "introduce the new game" and naming nothing is a hole of exactly
+   * the kind a 3B fills with fiction, and the state cannot be leaned on here:
+   * `ctx.context()` for this turn was built before the commander existed.
+   */
+  function openingNote(state, background) {
+    return t('note.opening', { brief: openingBrief(engine, dict, state, backgroundName(background)) });
   }
 
   /* ---------- the actions ---------- */
 
-  ctx.action({
-    type: 'space_trader',
-    async run(steps) {
-      await load();
-      const want = String(steps ?? '').trim().toLowerCase();
-      let state = await read();
-
-      if (want.startsWith('new') || (!state && want !== 'status')) {
-        const named = String(steps ?? '').replace(/^\s*new\s*(game)?\s*/i, '').trim();
-        const commander = named || ctx.store.get('commander', '') || 'Jameson';
-        state = engine.newGame({ commanderName: commander });
-        await write(state);
-        const sys = engine.currentSystem(state);
-        return {
-          ok: true,
-          summary: `A new game.\n\n${status(engine, state, t)}`,
-          feedback:
-            `A new game has started for commander ${commander} at ${sys.nameId} with ${state.credits} cr ` +
-            `and a Flea. Say so briefly and offer to show the market or the chart.`,
-        };
-      }
-
-      if (!state) {
-        return {
-          ok: false,
-          summary: 'No game is saved. Start one and it begins at a random system with 1000 credits.',
-          feedback: 'There is no saved game. Tell the user, and offer to start one — do not start it yourself.',
-        };
-      }
-
-      const screen =
-        want.startsWith('market') || want.startsWith('price')
-          ? marketScreen(state)
-          : want.startsWith('chart') || want.startsWith('map')
-            ? chartScreen(state)
-            : want.startsWith('news')
-              ? newsScreen(state)
-              : want.startsWith('ship')
-                ? shipScreen(state)
-                : want.startsWith('quest') || want.startsWith('job')
-                  ? questScreen(state)
-                  : { summary: status(engine, state, t) };
-
-      // A screen's own feedback wins where it has one: the default says where
-      // the user is, and the market's says what things cost, which is a
-      // different and more useful answer.
-      return {
-        ok: true,
-        feedback: `[SPACE TRADER] The ${want || 'status'} screen is on the user's screen.\n${briefing(engine, state)}`,
-        ...screen,
-      };
-    },
-
-    /**
-     * A button.
-     *
-     * Whatever it does has to be sayable in one line, because a line on the
-     * status bar is the whole of what a click can produce — the turn that drew
-     * the buttons finished long ago and there is no card left to redraw.
-     */
-    async choose(choiceId) {
-      await load();
-      const state = await read();
-      if (!state) throw new Error('there is no game running');
-
-      const [what, argument] = String(choiceId).split(':');
-
-      if (what === 'sellall') {
-        const held = state.ship.cargo?.[argument] ?? 0;
-        if (!held) throw new Error(`no ${t(`good.${argument}`) || argument} aboard any more`);
-        const result = engine.sellGood(state, argument, held);
-        if (!result.ok) throw new Error(t(result.error) || 'that sale was refused');
-        await write(state);
-        return `${messages([result.info], t)} — ${credits(state.credits)}`;
-      }
-
-      if (what === 'warp') {
-        const target = state.systems[Number(argument)];
-        if (!target) throw new Error('that system is not on the chart any more');
-        // The status bar takes one line, so a click gets the line and not the
-        // account. Whoever wants the account asks, and gets a card.
-        return (await jump(state, target)).line;
-      }
-
-      throw new Error('that button belongs to an older game');
-    },
-  });
+  const isRestart = (input) => patterns('restart').test(input);
+  const isClose = (input) => patterns('close').test(input);
+  const isResume = (input) => patterns('resume').test(input);
+  const isStart = (input) => patterns('start').test(input);
+  const isIntro = (input) => patterns('intro').test(input);
 
   /**
-   * Everything a jump involves, from either a button or an explicit move.
+   * A move a press already made.
    *
-   * Returns the one-line result *and* what happened on the way, separately,
-   * because the two callers can show different amounts. A button has only the
-   * status bar and gets the line; the move action has a card and gets both. An
-   * earlier version resolved the encounters, built the log and then returned
-   * only the line — so "2 met on the way" was the entire account of two
-   * gunfights, and whatever they cost showed up as a number quietly missing
-   * from the hull. Fought and unreported is worse than not fought.
+   * The words arrive as usual so the transcript reads normally, but they must
+   * not be applied twice — the day would pass twice and the ship would jump two
+   * systems. Consumed whatever the model actually sent: what happened is what
+   * happened.
    */
-  async function jump(state, target) {
-    const stance = ctx.store.get('stance', 'avoid') === 'fight' ? 'fight' : 'avoid';
-    const result = engine.warp(state, target.id);
-    if (!result.ok) {
-      throw new Error(t(result.error) || 'that jump is not possible');
-    }
-
-    const notes = [];
-    for (const encounter of result.encounters ?? []) {
-      const who = t(`encounter.kind.${encounter.kind}`) || encounter.kind;
-      const fought = fightItOut(state, encounter, stance);
-      notes.push([`— ${who}:`, fought.log].filter(Boolean).join('\n'));
-      // Nothing after this matters: the game is over and saving a dead
-      // commander's next move would be the app arguing with the engine.
-      if (state.ship.hull <= 0) break;
-    }
-    if (result.event) notes.push(t(result.event.bodyKey, result.event.params));
-    if (result.blackHole) notes.push(t('event.blackHole.body') || 'A singularity took the ship off course.');
-
-    await write(state);
-    const arrived = state.systems[result.arrivedAt ?? target.id];
-    const met = (result.encounters ?? []).length;
+  async function narrated(doc, state) {
+    const told = String(doc.narrate);
+    const opening = doc.opening === true;
+    const next = withGame(doc, state, { narrate: undefined, opening: undefined });
+    delete next.narrate;
+    delete next.opening;
+    await save(next);
     return {
-      line: `Arrived at ${arrived.nameId}${met ? `, ${met} met on the way` : ''}. Fuel ${state.ship.fuel}, hull ${state.ship.hull}.`,
-      log: notes.filter(Boolean).join('\n'),
+      ok: !isWrecked(state),
+      summary: `${told}\n\n${status(engine, dict, state)}`,
+      feedback: opening
+        ? openingNote(state, doc.background) + t('note.opening.pressed', { text: told })
+        : `${t('note.moveMade', { text: told })}\n${briefing(engine, dict, state)}`,
     };
   }
-
-  ctx.action({
-    type: 'space_trader_move',
-    async run(steps) {
-      await load();
-      const state = await read();
-      if (!state) {
-        return {
-          ok: false,
-          summary: 'No game is running.',
-          feedback: 'There is no saved game, so there is no move to make. Offer to start one.',
-        };
-      }
-
-      const said = String(steps ?? '').trim();
-      const [, verb = '', rest = ''] = said.match(/^(\w+)\s*(.*)$/s) ?? [];
-      const move = verb.toLowerCase();
-
-      /* --- buying and selling --- */
-      if (move === 'buy' || move === 'sell') {
-        const [, amountText = '', goodText = ''] = rest.match(/^(\S+)\s+(.*)$/s) ?? [];
-        const good = findGood(goodText || rest);
-        if (!good) {
-          return refuse(state, `"${goodText || rest}" is not a commodity in this game`);
-        }
-
-        const sys = engine.currentSystem(state);
-        let amount = Number.parseInt(amountText, 10);
-        if (!Number.isFinite(amount)) {
-          // "all" and "max" are what a person says, and they mean different
-          // things on the two sides of the trade.
-          if (move === 'sell') amount = state.ship.cargo?.[good] ?? 0;
-          else {
-            const price = engine.marketBuyPrice(state, good);
-            amount = Math.min(engine.freeCargoBays(state.ship), price ? Math.floor(state.credits / price) : 0);
-          }
-        }
-        if (!(amount > 0)) return refuse(state, `there is nothing to ${move} there`);
-
-        const result = move === 'buy' ? engine.buyGood(state, good, amount) : engine.sellGood(state, good, amount);
-        if (!result.ok) {
-          return refuse(state, t(result.error) || 'the market refused that');
-        }
-        await write(state);
-        return {
-          ok: true,
-          summary: `${messages([result.info], t)}\n\n${market(engine, state, t)}`,
-          feedback: `[SPACE TRADER] ${messages([result.info], t)}\n${briefing(engine, state)}`,
-        };
-      }
-
-      /* --- moving --- */
-      if (move === 'warp' || move === 'jump' || move === 'travel' || move === 'go') {
-        const target = findSystem(state, rest.replace(/^to\s+/i, ''));
-        if (!target) return refuse(state, `there is no system called "${rest}" on the chart`);
-        let jumped;
-        try {
-          jumped = await jump(state, target);
-        } catch (err) {
-          return refuse(state, err.message);
-        }
-        const dead = state.ship.hull <= 0;
-        // What happened on the way goes above where the ship ended up, because
-        // it is what explains the hull.
-        const account = [jumped.log, jumped.line].filter(Boolean).join('\n\n');
-        return {
-          ok: !dead,
-          summary: `${account}\n\n${dead ? 'The ship did not survive it.' : status(engine, state, t)}`,
-          feedback: `[SPACE TRADER] ${account}\n${dead ? 'The commander is dead; the game is over.' : briefing(engine, state)}`,
-        };
-      }
-
-      /* --- the two things a planet does for a ship --- */
-      if (move === 'refuel') {
-        const want = Number.parseInt(rest, 10);
-        const room = engine.maxFuel(state.ship) - state.ship.fuel;
-        const result = engine.refuel(state, Number.isFinite(want) ? Math.min(want, room) : room);
-        if (!result.ok) return refuse(state, t(result.error) || 'no fuel was sold');
-        await write(state);
-        return {
-          ok: true,
-          summary: `${messages([result.info], t)}\n\n${status(engine, state, t)}`,
-          feedback: `[SPACE TRADER] ${messages([result.info], t)}\n${briefing(engine, state)}`,
-        };
-      }
-
-      if (move === 'repair') {
-        const result = engine.repair(state, engine.maxHull(state.ship) - state.ship.hull);
-        if (!result.ok) return refuse(state, t(result.error) || 'no repairs were made');
-        await write(state);
-        return {
-          ok: true,
-          summary: `${messages([result.info], t)}\n\n${status(engine, state, t)}`,
-          feedback: `[SPACE TRADER] ${messages([result.info], t)}\n${briefing(engine, state)}`,
-        };
-      }
-
-      return refuse(state, `"${said}" is not a move — buy, sell, warp, refuel and repair are`);
-    },
-  });
 
   /**
    * A move that did not happen.
@@ -537,29 +608,770 @@ export function activate(ctx) {
     return {
       ok: false,
       summary: reason,
-      feedback: `[SPACE TRADER] That move was refused: ${reason}. Tell the user and do not retry it.\n${briefing(engine, state)}`,
+      feedback: `${t('note.refused', { reason })}\n${briefing(engine, dict, state)}`,
     };
   }
 
-  ctx.prompt(PROMPT);
+  ctx.action({
+    type: 'space_trader',
+    async run(steps) {
+      await load();
+      const doc = (await ctx.state.get()) ?? {};
+      const said = String(steps ?? '').trim();
+      const want = said.toLowerCase();
+      const state = await read();
+
+      if (doc.narrate && state) return narrated(doc, state);
+
+      /**
+       * There is shooting.
+       *
+       * Every screen answers with the fight, the market and the chart included.
+       * Not because the market is unknowable from here — the ship has arrived
+       * and the prices are real — but because a model handed a price table in
+       * the middle of a gunfight advises on trade, and the one thing the player
+       * needs to hear is what is shooting at them.
+       */
+      if (doc.fight && fight.current(doc.fight) && state) {
+        await paint(doc);
+        return {
+          ok: true,
+          summary: fight.account(doc.fight),
+          feedback: `${t('note.fightOn')}\n${fight.situation(engine, dict, state, doc.fight)}`,
+        };
+      }
+
+      /**
+       * A commander being made.
+       *
+       * The background is answered by pressing a card, so nothing typed can
+       * settle it and whatever arrives while that question is open is handed
+       * back to the player. Once one is chosen the next thing typed *is* the
+       * name — all of it, as typed, because a name is not something to
+       * interpret.
+       */
+      if (doc.setup) {
+        if (!doc.setup.background) {
+          // Repainted before the answer, because the answer points at cards
+          // that may not be on screen: `setup` survives a restart, and the only
+          // way out of this branch is pressing one of them.
+          await paint(doc);
+          return { ok: true, summary: t('ui.pickBackground'), feedback: t('note.pickBackground') };
+        }
+        const made = await makeCommander(doc, { background: doc.setup.background, name: said || doc.setup.name, told: true });
+        return {
+          ok: true,
+          summary: `${t('setup.begun', {
+            commander: made.state.commanderName,
+            system: engine.currentSystem(made.state).nameId,
+            credits: money(made.state.credits),
+          })}\n\n${status(engine, dict, made.state)}`,
+          feedback: openingNote(made.state, made.background),
+        };
+      }
+
+      /**
+       * The cue from the name field, with the commander already made.
+       *
+       * Before every other pattern, because it reads like a request to start a
+       * game and would otherwise be answered by the resume note — a briefing
+       * about a run nobody has flown yet.
+       */
+      if (state && doc.opening === true && isIntro(said)) {
+        const next = withGame(doc, state, {});
+        delete next.opening;
+        await save(next);
+        return {
+          ok: true,
+          summary: status(engine, dict, state),
+          feedback: openingNote(state, doc.background),
+        };
+      }
+
+      /**
+       * Closing is the player's, and only the player's.
+       *
+       * A model asked to stop playing will say it has stopped, which it has no
+       * means to do, and a prompt can make that rarer without making it
+       * impossible. So the answer is a refusal with somewhere to point —
+       * refused only while the panel is up, because that is where the button
+       * is. With the game already closed, typing has to keep working or there
+       * would be no way back at all.
+       */
+      if (isClose(said)) {
+        if (!state) return { ok: true, summary: t('ui.notRunning'), feedback: t('note.noGameToClose') };
+        if (doc.closed === true) return { ok: true, summary: t('ui.alreadyClosed'), feedback: t('note.alreadyClosed') };
+        if (scene) {
+          // Told about a button, so the row it is on had better be drawn.
+          await paint(doc);
+          return { ok: false, summary: t('ui.quitIsYours'), feedback: t('note.cannotClose') };
+        }
+        // With no panel there is no button to point at, and refusing would
+        // leave a game that cannot be put away at all.
+        await save({ ...doc, closed: true });
+        return {
+          ok: true,
+          summary: t('ui.closed', { commander: state.commanderName, day: state.day }),
+          feedback: t('note.closed'),
+        };
+      }
+
+      if (isResume(said)) {
+        if (!state) return { ok: true, summary: t('ui.noSavedRun'), feedback: t('note.noSavedRun') };
+        await save({ ...doc, closed: false });
+        return {
+          ok: true,
+          summary: `${t('ui.resumed')}\n\n${status(engine, dict, state)}`,
+          feedback: `${t('note.resume')}\n${briefing(engine, dict, state)}`,
+        };
+      }
+
+      /**
+       * Throwing a run away is the player's too, for the same reason. Refused
+       * while a live run is on screen, where the button is; allowed when the
+       * game is closed or when there is no run at all, which is not a restart.
+       */
+      if (state && doc.closed !== true && !isWrecked(state) && isRestart(said) && scene) {
+        await paint(doc);
+        return { ok: false, summary: t('ui.restartIsYours'), feedback: t('note.cannotRestart') };
+      }
+
+      if (patterns('new').test(want) || isRestart(said)) {
+        const named = said.replace(/^\s*new\s*(game)?\s*/i, '').trim();
+        /**
+         * Not a commander yet — a question.
+         *
+         * Who is flying is the player's to answer, and it is answered on cards
+         * rather than read out of a settings row nobody remembers filling in.
+         * A name typed with the request is kept and put in the field, so
+         * "new game Jameson" still names the commander.
+         */
+        if (scene) {
+          armedRestart = false;
+          await save({ setup: named ? { name: named } : {} });
+          return { ok: true, summary: t('ui.newRun'), feedback: t('note.newRun') };
+        }
+        // No panel: there are no cards to press, so the run is made at once
+        // rather than on a question that could never be answered.
+        const made = await makeCommander(doc, { background: 'random', name: named, told: true });
+        return {
+          ok: true,
+          summary: `${t('screen.newGame')}\n\n${status(engine, dict, made.state)}`,
+          feedback: openingNote(made.state, made.background),
+        };
+      }
+
+      if (!state) return { ok: false, summary: t('ui.noGame'), feedback: t('note.noGame') };
+
+      if (isStart(said) && doc.closed === true) {
+        await save({ ...doc, closed: false });
+        return {
+          ok: true,
+          summary: `${t('ui.resumed')}\n\n${status(engine, dict, state)}`,
+          feedback: `${t('note.resume')}\n${briefing(engine, dict, state)}`,
+        };
+      }
+
+      const screen = patterns('market').test(want)
+        ? marketScreen(state)
+        : patterns('chart').test(want)
+          ? chartScreen(state)
+          : patterns('news').test(want)
+            ? newsScreen(state)
+            : patterns('ship').test(want)
+              ? shipScreen(state)
+              : patterns('jobs').test(want)
+                ? questScreen(state)
+                : { summary: status(engine, dict, state) };
+
+      // Looking costs nothing and changes nothing, but it is a turn the game
+      // acted in — which is what claims the panel for this conversation.
+      await paint(doc);
+
+      // A screen's own feedback wins where it has one: the default says where
+      // the user is, and the market's says what things cost, which is a
+      // different and more useful answer.
+      return {
+        ok: true,
+        feedback: `${t('note.screen', { screen: want || 'status' })}\n${briefing(engine, dict, state)}`,
+        ...screen,
+      };
+    },
+
+    /**
+     * A button under a card in the transcript.
+     *
+     * Older than the panel and kept: a card scrolled back to still has its
+     * buttons, and they still work. Whatever one does has to be sayable in one
+     * line, because a line on the status bar is the whole of what it can
+     * produce.
+     */
+    async choose(choiceId) {
+      await load();
+      const doc = (await ctx.state.get()) ?? {};
+      const state = await read();
+      if (!state) throw new Error('there is no game running');
+
+      const [what, argument] = String(choiceId).split(':');
+
+      if (what === 'sellall') {
+        const held = state.ship.cargo?.[argument] ?? 0;
+        if (!held) throw new Error(t('ui.nothingToSell'));
+        const result = engine.sellGood(state, argument, held);
+        if (!result.ok) throw new Error(dict.t(result.error) || t('refuse.saleRefused'));
+        await save(withGame(doc, state));
+        return `${messages([result.info], dict)} — ${money(state.credits)}`;
+      }
+
+      if (what === 'warp') {
+        const target = state.systems[Number(argument)];
+        if (!target) throw new Error(t('ui.noRouteThere'));
+        // A button under an old card can start a fight like anything else; the
+        // panel is where it is then fought, and this line is what says so.
+        const jumped = await travel(doc, state, target);
+        if (!jumped.fighting) await save(withGame(doc, state));
+        return jumped.line;
+      }
+
+      throw new Error('that button belongs to an older game');
+    },
+  });
+
+  ctx.action({
+    type: 'space_trader_move',
+    async run(steps) {
+      await load();
+      const doc = (await ctx.state.get()) ?? {};
+      const state = await read();
+      if (!state) {
+        return { ok: false, summary: t('ui.notStarted'), feedback: t('note.noGame') };
+      }
+      if (doc.narrate) return narrated(doc, state);
+
+      const said = String(steps ?? '').trim();
+      // Nothing is bought, sold or jumped while there is shooting: the ship is
+      // in somebody's sights, and the moves that exist there are the fight's.
+      if (doc.fight && fight.current(doc.fight)) return fightByWord(doc, state, said);
+
+      const [, verb = '', rest = ''] = said.match(/^(\S+)\s*(.*)$/s) ?? [];
+      const move = verb.toLowerCase();
+
+      /* --- buying and selling --- */
+      if (patterns('buy').test(move) || patterns('sell').test(move)) {
+        const selling = patterns('sell').test(move);
+        const [, amountText = '', goodText = ''] = rest.match(/^(\S+)\s+(.*)$/s) ?? [];
+        const good = findGood(goodText || rest);
+        if (!good) return refuse(state, t('refuse.notCommodity', { what: goodText || rest }));
+
+        let amount = Number.parseInt(amountText, 10);
+        if (!Number.isFinite(amount)) {
+          // "all" and "max" are what a person says, and they mean different
+          // things on the two sides of the trade.
+          amount = selling ? state.ship.cargo?.[good] ?? 0 : affordable(engine, state, good);
+        }
+        if (!(amount > 0)) return refuse(state, t('refuse.nothingTo', { move }));
+
+        const result = selling ? engine.sellGood(state, good, amount) : engine.buyGood(state, good, amount);
+        if (!result.ok) return refuse(state, dict.t(result.error) || t('refuse.marketRefused'));
+        await save(withGame(doc, state));
+        return {
+          ok: true,
+          summary: `${messages([result.info], dict)}\n\n${market(engine, dict, state)}`,
+          feedback: `${messages([result.info], dict)}\n${briefing(engine, dict, state)}`,
+        };
+      }
+
+      /* --- moving --- */
+      if (patterns('warp').test(move)) {
+        const target = findSystem(state, rest.replace(/^to\s+/i, ''));
+        if (!target) return refuse(state, t('refuse.noSystem', { what: rest }));
+        let jumped;
+        try {
+          jumped = await travel(doc, state, target);
+        } catch (err) {
+          return refuse(state, err.message);
+        }
+        /**
+         * Intercepted.
+         *
+         * The jump is a move like any other and it ends here: the panel now
+         * holds a fight, and the fight is the player's to fight. The model is
+         * told in as many words not to narrate its outcome, because a model
+         * that has just read "a pirate closes in" will otherwise write the
+         * whole gunfight — and then the panel and the story are two different
+         * games.
+         */
+        if (jumped.fighting) {
+          return {
+            ok: true,
+            summary: `${jumped.account}\n\n${jumped.line}`,
+            feedback: `${t('note.fightStarted')}\n${fight.situation(engine, dict, state, (await ctx.state.get()).fight)}`,
+          };
+        }
+        await save(withGame(doc, state));
+        const dead = isWrecked(state);
+        return {
+          ok: !dead,
+          summary: `${jumped.account}\n\n${dead ? t('ui.dead') : status(engine, dict, state)}`,
+          feedback: `${jumped.account}\n${dead ? t('note.dead') : briefing(engine, dict, state)}`,
+        };
+      }
+
+      /* --- the two things a planet does for a ship --- */
+      if (patterns('refuel').test(move)) {
+        const want = Number.parseInt(rest, 10);
+        const room = engine.maxFuel(state.ship) - state.ship.fuel;
+        const result = engine.refuel(state, Number.isFinite(want) ? Math.min(want, room) : room);
+        if (!result.ok) return refuse(state, dict.t(result.error) || t('refuse.noFuelSold'));
+        await save(withGame(doc, state));
+        return {
+          ok: true,
+          summary: `${messages([result.info], dict)}\n\n${status(engine, dict, state)}`,
+          feedback: `${messages([result.info], dict)}\n${briefing(engine, dict, state)}`,
+        };
+      }
+
+      if (patterns('repair').test(move)) {
+        const result = engine.repair(state, engine.maxHull(state.ship) - state.ship.hull);
+        if (!result.ok) return refuse(state, dict.t(result.error) || t('refuse.noRepairs'));
+        await save(withGame(doc, state));
+        return {
+          ok: true,
+          summary: `${messages([result.info], dict)}\n\n${status(engine, dict, state)}`,
+          feedback: `${messages([result.info], dict)}\n${briefing(engine, dict, state)}`,
+        };
+      }
+
+      return refuse(state, t('refuse.unknownMove', { what: said }));
+    },
+  });
 
   /**
    * The position, every turn.
    *
-   * Only while a game exists, and only ever the briefing — never the market
-   * table. This is re-sent on every turn of every conversation, counted against
-   * the window, and paid for by turns that have nothing to do with the game.
+   * Only while a game exists and is open, and only ever the briefing — never
+   * the market table. This is re-sent on every turn of every conversation,
+   * counted against the window, and paid for by turns that have nothing to do
+   * with the game.
    */
   ctx.context(async () => {
     const doc = await ctx.state.get();
-    if (!doc?.save) return '';
+    if (!doc) return '';
     await load();
+
+    if (doc.setup) {
+      return doc.setup.background
+        ? t('note.nameContext', { background: backgroundName(doc.setup.background) })
+        : t('note.pickBackgroundContext');
+    }
+    if (!doc.save) return '';
+    // A closed game takes the world out of the prompt, because while that is in
+    // front of the model every turn it goes on being a trading computer
+    // whatever it was asked. It does not take out the way back in: with nothing
+    // at all here, a model asked to play again simply carries on from the
+    // transcript, inventing a game with no plugin behind it.
+    if (doc.closed === true) return t('note.closed');
     const state = await read();
-    return state ? briefing(engine, state) : '';
+    if (!state) return '';
+    // A fight replaces the position rather than joining it: where the ship is
+    // docked is not the question while somebody is shooting at it, and the
+    // model has to be told in as many words that the outcome is not its to
+    // write.
+    if (doc.fight && fight.current(doc.fight)) {
+      return `${t('note.language')}\n${fight.situation(engine, dict, state, doc.fight)}`;
+    }
+    return `${t('note.language')}\n${briefing(engine, dict, state)}`;
   });
 
-  /** A language change is the one setting that rewrites every screen. */
-  ctx.onSettingsChanged((key) => {
-    if (key === 'language' && i18n) i18n.setLocale(ctx.store.get('language', 'en') === 'uk' ? 'uk' : 'en');
+  ctx.prompt(t('prompt.text', { language: t('note.language') }));
+
+  /**
+   * A language changed is a panel that has to be redrawn.
+   *
+   * Every label on it — the moves, the meters, the title — was chosen in the
+   * old language, and nothing else would redraw them until the next turn.
+   */
+  ctx.onSettingsChanged(async () => {
+    if (!engine) return;
+    speak();
+    const doc = await ctx.state.get();
+    if (doc?.setup || doc?.save) await paint(doc);
   });
+
+  // Declared in the manifest, so a reader knows this plugin draws a panel
+  // without reading a line of it. Absent on a host that has none, and
+  // everything above still works — the game is playable by typing, exactly as
+  // it was before there were buttons.
+  try {
+    scene = ctx.service('scene');
+  } catch {
+    /* older host: the panel is a bonus, not the game */
+  }
+  if (!scene) return;
+
+  /**
+   * A pressed button.
+   *
+   * Two kinds, and the difference is the whole design. Looking at something —
+   * the market, the ship, the chart — is answered here and now: it redraws the
+   * panel, involves no model and costs no turn. Doing something the engine can
+   * settle by itself is applied here too, and then the words it stands for are
+   * handed back so the transcript reads as though they had been typed. Nothing
+   * here starts a turn on its own.
+   *
+   * Registered last, after every other contribution, so a failure earlier in
+   * activation cannot leave a panel driven by a plugin that is not running.
+   */
+  scene.present({
+    pluginId: ctx.id,
+    pluginName: 'Space Trader',
+    act: async (actionId, value = '') => {
+      await load();
+      const doc = (await ctx.state.get()) ?? {};
+
+      /**
+       * A card pressed.
+       *
+       * Only while the question is open: a background arriving at any other time
+       * is a stale click on a chooser already answered, and acting on it would
+       * replace a commander mid-run.
+       */
+      if (actionId.startsWith('background-')) {
+        if (!doc.setup || doc.setup.background) return { status: t('setup.backgroundTaken') };
+        const key = actionId.slice('background-'.length);
+        const picked = backgroundFor(key) ?? BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)];
+        await save({ ...doc, setup: { ...doc.setup, background: picked.key } });
+        // Opened for them rather than left to be found: the background was
+        // chosen by pressing, and the next question should not be answered
+        // somewhere else.
+        return { status: t('setup.chosen', { background: backgroundName(picked.key) }), entry: true };
+      }
+
+      /**
+       * The name, and with it the run.
+       *
+       * Pressed empty — from the button on the row — this only opens the field.
+       * Sent with something in it, it makes the commander here and now: the
+       * engine decides, the model narrates, and whether a game starts at all
+       * stops depending on a 3B choosing to pass a word along.
+       */
+      if (actionId === 'name') {
+        if (!doc.setup?.background) return { status: t('setup.needBackground') };
+        const typed = String(value ?? '').trim();
+        if (!typed) return { status: t('setup.needName'), entry: true };
+        const made = await makeCommander(doc, { background: doc.setup.background, name: typed });
+        return {
+          status: t('setup.begun', {
+            commander: made.state.commanderName,
+            system: engine.currentSystem(made.state).nameId,
+            credits: money(made.state.credits),
+          }),
+          // A cue and not a move: nothing in the world has happened yet, and the
+          // opening is the one thing left to say.
+          submit: t('setup.intro.words'),
+        };
+      }
+
+      const state = doc.closed === true ? null : await read();
+      if (!state) return { status: t('ui.notStarted') };
+
+      /**
+       * A round of a fight.
+       *
+       * Free, and that is the whole point of it: the engine settles the round,
+       * the panel redraws and the status bar carries what just happened, with
+       * no turn and no tokens spent. Nothing is submitted until the shooting
+       * stops — a line sent per round would be a model turn per round, which is
+       * the thing this replaced.
+       */
+      if (doc.fight && fight.current(doc.fight)) {
+        const record = doc.fight;
+        const encounter = fight.current(record);
+
+        /** Switching target inside a wing. Free, and not a round. */
+        if (actionId.startsWith('fight-target-')) {
+          if (!engine.setTarget(encounter, Number(actionId.slice('fight-target-'.length)))) {
+            await paint(doc);
+            return { status: t('ui.moveGone') };
+          }
+          await save(withGame(doc, state, { fight: record }));
+          return { status: t('fight.targetSwitched', { ship: fight.theirShip(dict, encounter) }), sheet: true };
+        }
+
+        /**
+         * Hand the rest of it to the posture in the settings.
+         *
+         * Every ship left on this leg, not only the one in front — this is the
+         * button for a player who does not want to press through a gunfight
+         * with a hauler, and stopping it halfway would not be that.
+         */
+        if (actionId === 'fight-auto') {
+          resolveAll(state, record);
+          const ended = await endFight(doc, state, record);
+          return { status: isWrecked(state) ? t('ui.dead') : ended.line, submit: t('move.fight.submit') };
+        }
+
+        /** The next ship, or the end of the jump. */
+        if (actionId === 'fight-on') {
+          const opening = fight.advance(dict, record);
+          if (opening) {
+            await save(withGame(doc, state, { fight: record }));
+            return { status: fight.headline(opening) || t('fight.nextShip') };
+          }
+          const ended = await endFight(doc, state, record);
+          return { status: ended.line, submit: t('move.fight.submit') };
+        }
+
+        const move = FIGHT_ACTIONS[actionId];
+        if (!move) {
+          await paint(doc);
+          return { status: t('ui.moveGone') };
+        }
+        const lines = fight.resolve(engine, dict, state, record, move);
+        // A commander who dies out there dies with the jump unfinished; the
+        // account still has to reach the transcript, and the panel has to stop
+        // being a fight.
+        if (isWrecked(state)) {
+          await endFight(doc, state, record);
+          return { status: t('ui.dead'), submit: t('move.fight.submit') };
+        }
+        await save(withGame(doc, state, { fight: record }));
+        return { status: fight.headline(lines) || t('fight.nothingHappened') };
+      }
+
+      /**
+       * Leaving. Local: no turn, no model, no tokens.
+       *
+       * The save is untouched apart from the flag, so this is a door and not a
+       * demolition — "resume the game" walks back through it into the same day
+       * with the same cargo.
+       */
+      if (actionId === 'quit') {
+        armedRestart = false;
+        askingAmount = null;
+        await save({ ...doc, closed: true });
+        return { status: t('ui.closed', { commander: state.commanderName, day: state.day }) };
+      }
+
+      /**
+       * Starting over, on the second press while a commander is still flying.
+       *
+       * The app puts digits on these by position and a digit is easy to hit by
+       * accident. A run is hours of trading, and losing it to a mistyped
+       * keystroke is the one failure this game cannot make up for. A wrecked
+       * ship has nothing left to lose, so it goes straight through.
+       */
+      if (actionId === 'restart') {
+        if (!isWrecked(state) && !armedRestart) {
+          armedRestart = true;
+          await paint(doc);
+          return { status: t('ui.restartConfirm', { commander: state.commanderName }) };
+        }
+        armedRestart = false;
+        askingAmount = null;
+        await save({ setup: {} });
+        return { status: t('ui.newRun'), cards: true };
+      }
+
+      // Anything else disarms it: a player who went off to do something else
+      // has answered the question.
+      if (armedRestart) {
+        armedRestart = false;
+        await paint(doc);
+      }
+
+      /**
+       * The four doors and the chart.
+       *
+       * Opening one costs nothing: it swaps which lists the sheet holds and
+       * asks for the sheet. Repainting first matters — the dialog is filled
+       * from the scene, so the scene has to hold the new lists before the app
+       * is told to show them, or the first press opens the previous view.
+       */
+      if (actionId === 'market' || actionId === 'ship' || actionId === 'jobs' || actionId === 'news') {
+        sheetView = actionId;
+        askingAmount = null;
+        await paint(doc);
+        return { sheet: true };
+      }
+      if (actionId === 'chart') {
+        askingAmount = null;
+        await paint(doc);
+        return { board: true };
+      }
+
+      /**
+       * A commodity row.
+       *
+       * A trade is a number, and the row cannot ask for one — so it opens the
+       * field with the price and the ceiling already worked out. Nothing is
+       * bought or sold here; that happens when the field answers.
+       */
+      if (actionId.startsWith('buy-') || actionId.startsWith('sell-')) {
+        const kind = actionId.startsWith('buy-') ? 'buy' : 'sell';
+        const good = actionId.slice(kind.length + 1);
+        if (!engine.GOOD_IDS.includes(good)) return { status: t('ui.moveGone') };
+        const sys = engine.currentSystem(state);
+        if (kind === 'sell' && !(state.ship.cargo?.[good] > 0)) {
+          askingAmount = null;
+          await paint(doc);
+          return { status: t('ui.nothingToSell') };
+        }
+        if (kind === 'buy' && !engine.marketBuyPrice(state, good)) {
+          askingAmount = null;
+          await paint(doc);
+          return { status: t('ui.notForSale') };
+        }
+        if (kind === 'sell' && !(sys.sellPrice?.[good] > 0)) {
+          askingAmount = null;
+          await paint(doc);
+          return { status: t('ui.notBought') };
+        }
+        askingAmount = { kind, good };
+        await paint(doc);
+        return { entry: true };
+      }
+
+      /**
+       * The field answering, which is where a trade actually happens.
+       *
+       * Empty means as many as possible, which is what the field was already
+       * showing. The engine settles it — there is no ruling to make about a
+       * purchase — and the words it stands for go into the conversation so the
+       * transcript reads as though they had been typed.
+       */
+      if (actionId === 'amount') {
+        const asked = askingAmount;
+        askingAmount = null;
+        if (!asked) {
+          await paint(doc);
+          return { status: t('ui.moveGone') };
+        }
+        const ceiling = asked.kind === 'sell'
+          ? state.ship.cargo?.[asked.good] ?? 0
+          : affordable(engine, state, asked.good);
+        const typed = Number.parseInt(String(value ?? '').trim(), 10);
+        const amount = Math.max(0, Math.min(Number.isFinite(typed) ? typed : ceiling, ceiling));
+        if (!(amount > 0)) {
+          await paint(doc);
+          return { status: asked.kind === 'sell' ? t('ui.nothingToSell') : t('ui.cannotAfford') };
+        }
+        const result = asked.kind === 'sell'
+          ? engine.sellGood(state, asked.good, amount)
+          : engine.buyGood(state, asked.good, amount);
+        if (!result.ok) {
+          await paint(doc);
+          return { status: dict.t(result.error) || t('refuse.marketRefused') };
+        }
+        const line = messages([result.info], dict);
+        await save(withGame(doc, state, { narrate: line }));
+        return {
+          status: line,
+          submit: t(asked.kind === 'sell' ? 'move.sell.submit' : 'move.buy.submit', {
+            amount,
+            good: dict.goodName(asked.good),
+          }),
+        };
+      }
+
+      /**
+       * A system pressed on the chart.
+       *
+       * The jump is made here rather than handed to the model as words to relay:
+       * a press is the player's own, and a 3B asked to pass "warp Nyle" through
+       * sometimes narrates the arrival instead of calling the action, which
+       * would leave the ship where it was while the story moved on. Checked
+       * against what is actually in range, because the run may have moved on
+       * since the marker was drawn.
+       */
+      if (actionId.startsWith('warp-')) {
+        const target = state.systems[Number(actionId.slice('warp-'.length))];
+        const canReach = target && (engine.canTravelTo(state, target.id) || engine.currentSystem(state).wormholeTo === target.id);
+        if (!canReach) {
+          await paint(doc);
+          return { status: t('ui.noRouteThere') };
+        }
+        let jumped;
+        try {
+          jumped = await travel(doc, state, target);
+        } catch (err) {
+          await paint(doc);
+          return { status: err.message };
+        }
+        // Intercepted: the panel is already showing the fight, and nothing is
+        // sent to the model — a round is a keypress and a keypress must not
+        // cost a turn. The transcript hears about it when the shooting stops.
+        if (jumped.fighting) return { status: jumped.line };
+        await save(withGame(doc, state, { narrate: jumped.account }));
+        return { status: jumped.line, submit: t('move.warp.submit', { system: target.nameId }) };
+      }
+
+      if (actionId === 'refuel' || actionId === 'repair') {
+        const result = actionId === 'refuel'
+          ? engine.refuel(state, engine.maxFuel(state.ship) - state.ship.fuel)
+          : engine.repair(state, engine.maxHull(state.ship) - state.ship.hull);
+        if (!result.ok) {
+          await paint(doc);
+          return { status: dict.t(result.error) || t(actionId === 'refuel' ? 'refuse.noFuelSold' : 'refuse.noRepairs') };
+        }
+        const line = messages([result.info], dict);
+        await save(withGame(doc, state, { narrate: line }));
+        return { status: line, submit: t(`move.${actionId}.submit`) };
+      }
+
+      /**
+       * A contract taken on, or turned in.
+       *
+       * Both are settled by the engine and neither needs a model, so both
+       * happen here. The job board was unreachable before there was a panel:
+       * it is a list on a planet, and a list is what the sheet is for.
+       */
+      if (actionId.startsWith('take-')) {
+        const result = engine.acceptBoardQuest(state, actionId.slice('take-'.length));
+        if (!result.ok) {
+          await paint(doc);
+          return { status: dict.t(result.error) };
+        }
+        const line = messages([result.info], dict);
+        await save(withGame(doc, state));
+        return { status: line, sheet: true };
+      }
+
+      if (actionId.startsWith('turnin-')) {
+        const quest = engine.turnInQuest(state, actionId.slice('turnin-'.length));
+        if (!quest) {
+          await paint(doc);
+          return { status: t('ui.moveGone') };
+        }
+        const line = messages([{ key: 'quest.completed', params: engine.questParams(state, quest) }], dict);
+        await save(withGame(doc, state, { narrate: line }));
+        return { status: line, sheet: true };
+      }
+
+      // The host already refuses an id that is not in the scene it drew; this is
+      // the other half — the run itself has moved on since. Repainting is what
+      // puts the row back in step, and is more use than an error.
+      await paint(doc);
+      return { status: t('ui.moveGone') };
+    },
+  });
+
+  /**
+   * The saved run, drawn at activation.
+   *
+   * A scene painted outside a turn belongs to no conversation and is drawn
+   * nowhere until the plugin acts in one — so this is not a panel appearing over
+   * somebody's unrelated chat, it is the panel being ready for the conversation
+   * the game is next played in. Only when there is something to draw: `paint`
+   * clears the panel for a document with no run in it, and clearing is not
+   * scoped to whoever painted last.
+   */
+  (async () => {
+    const doc = await ctx.state.get();
+    if (!doc?.setup && !doc?.save) return;
+    await load();
+    await paint(doc);
+  })();
 }
+
+export function deactivate() {}
