@@ -53,8 +53,12 @@ const BREAK = String.fromCharCode(10);
 const MAX_CHOICES = 8;
 /** Log entries kept in the save. The game keeps every one; a save is not an archive. */
 const KEEP_LOG = 60;
-/** A picture for the chart, if the player put one in the data directory. */
-const CHART_NAMES = ['chart.png', 'chart.jpg', 'chart.jpeg', 'chart.webp', 'chart.gif'];
+/**
+ * Pictures the player put in the data directory: `chart.png` behind the star
+ * chart, `good-water.jpg` on the card that offers to buy water. None is
+ * shipped — the galaxy is generated afresh every run — so these are theirs.
+ */
+const PICTURE_TYPES = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
 
 /**
  * The buttons of a fight, and the moves they stand for.
@@ -202,14 +206,25 @@ export function activate(ctx) {
    * rewritten on every update, and a picture somebody generated must survive a
    * version bump.
    */
-  function chartPicture() {
+  function pictures() {
+    const found = { chart: '', goods: {} };
     try {
-      const present = new Set(readdirSync(ctx.dataDir()));
-      return CHART_NAMES.find((name) => present.has(name)) ?? '';
+      // Read on every repaint rather than cached: dropping a file in should
+      // work without restarting anything, and this is a directory listing.
+      for (const name of readdirSync(ctx.dataDir())) {
+        const dot = name.lastIndexOf('.');
+        if (dot < 1 || !PICTURE_TYPES.includes(name.slice(dot + 1).toLowerCase())) continue;
+        const stem = name.slice(0, dot).toLowerCase();
+        if (stem === 'chart') found.chart ||= name;
+        // `good-water.jpg`, and the id is the game's own: the same word the
+        // moves are typed with, so a player naming a file has one vocabulary
+        // to learn rather than two.
+        else if (stem.startsWith('good-')) found.goods[stem.slice('good-'.length)] ||= name;
+      }
     } catch {
       // No data directory yet is the ordinary case, not a fault.
-      return '';
     }
+    return found;
   }
 
   let scene = null;
@@ -237,10 +252,12 @@ export function activate(ctx) {
       scene.show(fight.scene(engine, dict, state, doc.fight, { stance: stance() }));
       return;
     }
+    const art = pictures();
     scene.show(snapshot(engine, dict, state, {
       sheetView,
       armedRestart,
-      image: chartPicture(),
+      image: art.chart,
+      pictures: art.goods,
       amount: askingAmount,
     }));
   }
@@ -1188,7 +1205,26 @@ export function activate(ctx) {
        * from the scene, so the scene has to hold the new lists before the app
        * is told to show them, or the first press opens the previous view.
        */
-      if (actionId === 'market' || actionId === 'ship' || actionId === 'jobs' || actionId === 'news') {
+      /**
+       * The market is dealt rather than listed.
+       *
+       * The table is still one press away — the app's own sheet button, and the
+       * last card in the deck — but it is a reference, and the question a trader
+       * is actually asking is not in it. See `deals()` in `panel.mjs`.
+       */
+      if (actionId === 'market') {
+        sheetView = 'market';
+        askingAmount = null;
+        await paint(doc);
+        return { cards: true };
+      }
+      if (actionId === 'deal-table') {
+        sheetView = 'market';
+        askingAmount = null;
+        await paint(doc);
+        return { sheet: true };
+      }
+      if (actionId === 'ship' || actionId === 'jobs' || actionId === 'news') {
         sheetView = actionId;
         askingAmount = null;
         await paint(doc);
@@ -1201,15 +1237,18 @@ export function activate(ctx) {
       }
 
       /**
-       * A commodity row.
+       * A commodity, from a card in the deck or a row in the table.
        *
-       * A trade is a number, and the row cannot ask for one — so it opens the
-       * field with the price and the ceiling already worked out. Nothing is
-       * bought or sold here; that happens when the field answers.
+       * A trade is a number, and neither a card nor a row can ask for one — so
+       * pressing either opens the field with the price and the ceiling already
+       * worked out. Nothing is bought or sold here; that happens when the field
+       * answers.
        */
-      if (actionId.startsWith('buy-') || actionId.startsWith('sell-')) {
-        const kind = actionId.startsWith('buy-') ? 'buy' : 'sell';
-        const good = actionId.slice(kind.length + 1);
+      if (actionId.startsWith('buy-') || actionId.startsWith('sell-')
+        || actionId.startsWith('deal-buy-') || actionId.startsWith('deal-sell-')) {
+        const bare = actionId.startsWith('deal-') ? actionId.slice('deal-'.length) : actionId;
+        const kind = bare.startsWith('buy-') ? 'buy' : 'sell';
+        const good = bare.slice(kind.length + 1);
         if (!engine.GOOD_IDS.includes(good)) return { status: t('ui.moveGone') };
         const sys = engine.currentSystem(state);
         if (kind === 'sell' && !(state.ship.cargo?.[good] > 0)) {

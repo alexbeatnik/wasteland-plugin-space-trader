@@ -12,11 +12,14 @@
  * hold — which is what actually breaks.
  */
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { activate } from '../plugins/space-trader/main.mjs';
 
 /** Everything `ctx` is, with a panel on the end of it. */
-function harness({ settings = {}, document = {} } = {}) {
+function harness({ settings = {}, document = {}, dataDir = '.' } = {}) {
   const actions = new Map();
   const logged = [];
   let doc = document;
@@ -58,7 +61,7 @@ function harness({ settings = {}, document = {} } = {}) {
         doc = value;
       },
     },
-    dataDir: () => '.',
+    dataDir: () => dataDir,
     log: (text) => logged.push(text),
     progress: () => {},
   };
@@ -398,7 +401,8 @@ test('the sheet swaps one list for another, and costs nothing', async () => {
     ['ship', ['THE SHIP', 'ABOARD']],
     ['jobs', ['CONTRACTS', 'THE JOB BOARD']],
     ['news', ['REPORTED HERE', 'THE LOG']],
-    ['market', ['ON SALE HERE', 'IN THE HOLD']],
+    // MARKET deals the deck now; the table it replaced is the deck's last card.
+    ['deal-table', ['ON SALE HERE', 'IN THE HOLD']],
   ]) {
     const answered = await app.act(door);
     assert.equal(answered.sheet, true, `${door} did not open the sheet`);
@@ -574,4 +578,157 @@ test('a game closed yesterday does not come back on screen by itself', async () 
   const again = harness({ document: app.document });
   await again.settle();
   assert.equal(again.drawn, null);
+});
+
+test('the market is dealt as a hand, and every card is a decision', async () => {
+  const app = await flying();
+  const opened = await app.act('market');
+  // A deck rather than a list: the app opens its chooser, and the table it
+  // replaced is the last card in it.
+  assert.equal(opened.cards, true);
+  assert.equal(opened.sheet ?? false, false);
+
+  const deck = app.drawn.cards;
+  assert.ok(deck, 'no deck was dealt');
+  assert.match(deck.label, /^What is worth doing at /);
+  assert.ok(deck.items.length > 1 && deck.items.length <= 8, `${deck.items.length} cards`);
+
+  const table = deck.items.at(-1);
+  assert.equal(table.action, 'deal-table');
+  for (const card of deck.items.slice(0, -1)) {
+    // Commodity ids are the game's own, and some of them are camelCase.
+    assert.match(card.action, /^deal-(buy|sell)-[A-Za-z]+$/);
+    // Not a price: a decision. Every card names what it would cost or fetch and
+    // says what pressing it does.
+    assert.match(card.note, /Press to (buy|sell)|affordable/);
+    assert.ok(card.note.length <= 200, `a card's paragraph is ${card.note.length} long`);
+  }
+});
+
+test('the deck is always in the scene, so the app can offer its own way in', async () => {
+  // The host hides its chooser button when a scene has no cards, and throws a
+  // chooser open unasked only when the scene offers no moves at all. This one
+  // always offers moves, so it is a reference the player opens — not a question
+  // that traps them.
+  const app = await flying();
+  assert.ok(app.drawn.cards, 'the deck is only there when asked for');
+  assert.ok(app.drawn.actions.length > 0, 'a scene with cards and no moves opens itself');
+});
+
+test('a card opens the field, and the field does the trade', async () => {
+  const app = await flying();
+  await app.act('market');
+  const card = app.drawn.cards.items.find((item) => item.action.startsWith('deal-buy-'));
+  const good = card.action.slice('deal-buy-'.length);
+
+  const pressed = await app.act(card.action);
+  assert.equal(pressed.entry, true);
+  assert.match(app.drawn.entry.label, /affordable/);
+  assert.equal(app.game.ship.cargo[good], 0, 'the card bought something by itself');
+
+  // One, because the deck leads with the biggest edge a bay can carry and that
+  // is often something a Flea can afford exactly one of.
+  const done = await app.act('amount', '1');
+  assert.equal(app.game.ship.cargo[good], 1);
+  assert.match(done.submit, /^buy 1 /);
+});
+
+test('what is in the hold is dealt as a sale, and outranks a thinner purchase', async () => {
+  const app = await flying();
+  const state = app.game;
+  const sys = state.systems[state.currentSystem];
+  const good = Object.keys(sys.sellPrice ?? {}).find((id) => (sys.sellPrice[id] ?? 0) > 0);
+  state.ship.cargo[good] = 5;
+  // Bought for almost nothing, so the sale clears more a unit than any purchase
+  // on this planet could.
+  state.buyingPrice[good] = 5;
+  app.write ? app.write(state) : app.rewrite(state);
+  await app.act('market');
+
+  const first = app.drawn.cards.items[0];
+  assert.equal(first.action, `deal-sell-${good}`, 'the best deal on the table is not first');
+  assert.equal(first.tone, 'good');
+  assert.match(first.note, /5 aboard/);
+  assert.match(first.note, /a unit more than you gave/);
+});
+
+test('a guess never outranks a deal that can be taken, and never claims to be one', async () => {
+  // Early on, nothing in range has been visited, and quoting a price at a
+  // system the run has not been to would be handing over what it has not
+  // earned. Those cards fall back on what is honestly known here — the usual
+  // price for a planet like this, and which way the commodity wants carrying.
+  //
+  // They sort below every deal that can actually be taken, and above the ones
+  // that cannot: a certainty nobody can afford is worth less at the top of the
+  // deck than a guess somebody can act on.
+  const app = await flying();
+  await app.act('market');
+  const deck = app.drawn.cards.items.slice(0, -1);
+  const guesses = deck.filter((card) => card.note.includes('No destination known yet'));
+
+  for (const guess of guesses) {
+    assert.notEqual(guess.tone, 'good', 'a guess is drawn as a certainty');
+    assert.match(guess.note, /the usual price|worth more|same price/);
+    for (const card of deck.slice(deck.indexOf(guess) + 1)) {
+      const takeable = card.note.includes('fuel away') || card.note.includes('Press to sell');
+      assert.ok(!takeable, `a deal that could be taken sorted below a guess: ${card.note}`);
+    }
+  }
+});
+
+test('the last card opens the whole table', async () => {
+  const app = await flying();
+  await app.act('market');
+  const opened = await app.act('deal-table');
+  assert.equal(opened.sheet, true);
+  assert.deepEqual(app.drawn.groups.map((entry) => entry.label), ['ON SALE HERE', 'IN THE HOLD']);
+});
+
+test('a commodity gets one card, and a sale takes it', async () => {
+  // "Sell your medicine" and "you cannot afford medicine" side by side is the
+  // same word twice and a slot spent on it.
+  const app = await flying();
+  const state = app.game;
+  const sys = state.systems[state.currentSystem];
+  const both = Object.keys(sys.buyPrice ?? {}).find((id) => sys.buyPrice[id] > 0 && sys.sellPrice[id] > 0);
+  state.ship.cargo[both] = 2;
+  app.rewrite(state);
+  await app.act('market');
+
+  const cards = app.drawn.cards.items.filter((card) => card.action.startsWith('deal-'));
+  const forThis = cards.filter((card) => card.action.endsWith(`-${both}`));
+  assert.equal(forThis.length, 1, `${forThis.length} cards for one commodity`);
+  assert.equal(forThis[0].action, `deal-sell-${both}`);
+});
+
+test('a wrecked ship is not dealt a hand', async () => {
+  const app = await flying();
+  const state = app.game;
+  state.ship.hull = 0;
+  app.rewrite(state);
+  await app.act('ship');
+  assert.equal(app.drawn.cards, null);
+});
+
+test('a picture dropped in the data directory lands on the card that wants it', async () => {
+  // None is shipped — the galaxy is generated afresh every run, so a painted
+  // starfield would be showing stars that are not there — but a player who
+  // makes their own should not have to be told a filename twice. The id is the
+  // game's own, the same word the moves are typed with.
+  const dataDir = mkdtempSync(join(tmpdir(), 'space-trader-art-'));
+  writeFileSync(join(dataDir, 'chart.png'), '');
+  writeFileSync(join(dataDir, 'good-water.jpg'), '');
+  writeFileSync(join(dataDir, 'notes.txt'), 'not a picture');
+
+  const app = harness({ dataDir });
+  await app.show('new game');
+  await app.act('background-trader');
+  await app.act('name', 'Jameson');
+
+  assert.equal(app.drawn.board.image, 'chart.png');
+  const water = app.drawn.cards.items.find((card) => card.action === 'deal-buy-water');
+  if (water) assert.equal(water.image, 'good-water.jpg');
+  for (const card of app.drawn.cards.items) {
+    assert.ok(!String(card.image ?? '').endsWith('.txt'), 'a text file was hung on a card');
+  }
 });

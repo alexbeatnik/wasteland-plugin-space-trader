@@ -189,6 +189,191 @@ export function board(engine, dict, state, image = '') {
   return { image, points, links };
 }
 
+/* ---------- the deck ---------- */
+
+/**
+ * The market as a hand of cards, and why it is not the table.
+ *
+ * The table is a reference: eighteen rows of four columns, correct and mute. It
+ * tells you what water costs here and says nothing about whether to buy any,
+ * which is the only question a trader is actually asking. Answering it means
+ * knowing two things the table has never held — what the hold already cost, and
+ * what the systems in range pay — and neither fits in a column.
+ *
+ * So a card is one commodity with the decision worked out: what it costs here,
+ * where the best price in range is, how much fuel that costs, and what the
+ * difference comes to a unit. Nothing on it is a secret: every price quoted is
+ * from a system this run has already visited, which is exactly what the player
+ * could work out by hand from the chart and their own memory.
+ *
+ * Eight at most, because the host draws eight, and that turns out to be the
+ * right shape anyway — a hand of choices rather than a spreadsheet.
+ */
+const DEAL_CARDS = 7;
+
+/** Systems the tank reaches whose prices this run has actually seen. */
+function knownMarkets(engine, state) {
+  return reachable(engine, state).filter((leg) => leg.sys.visited);
+}
+
+/** Where in range pays most for this, of the places the run has been. */
+function bestDestination(good, legs) {
+  let best = null;
+  for (const leg of legs) {
+    const price = leg.sys.sellPrice?.[good] ?? 0;
+    if (price > 0 && (!best || price > best.price)) best = { price, sys: leg.sys, fuel: leg.fuel };
+  }
+  return best;
+}
+
+/**
+ * What is worth doing here, best first.
+ *
+ * Three questions in order, and only the last of them is arithmetic.
+ *
+ * `can` — could this be pressed right now? A commodity worth 400 a bay that
+ * the credits will not stretch to one of is worth knowing about and is not
+ * worth the top of the deck.
+ *
+ * `sure` — is the number on it a remembered price or an argument? A destination
+ * this run has actually visited beats a guess about where the thing might sell,
+ * however good the guess looks.
+ *
+ * `score` — what a bay of it is worth. Buying and selling compete here on one
+ * number, so a sale clearing 40 a unit outranks a purchase that might clear 12,
+ * and a load bought at the wrong price sinks to where it belongs. A bay is the
+ * scarce thing, which is why the measure is per bay and not per credit.
+ */
+export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS } = {}) {
+  const sys = engine.currentSystem(state);
+  const legs = knownMarkets(engine, state);
+  const found = [];
+
+  for (const id of engine.GOOD_IDS) {
+    const held = state.ship.cargo?.[id] ?? 0;
+    const bid = sys.sellPrice?.[id] ?? 0;
+    if (held > 0 && bid > 0) {
+      // What a unit of it cost, from what the whole lot cost. Cargo that was
+      // never bought — plundered, or delivered on a contract — cost nothing,
+      // and a full-price sale is exactly what it is worth.
+      const paid = Math.round((state.buyingPrice?.[id] ?? 0) / held);
+      const margin = bid - paid;
+      found.push({
+        kind: 'sell',
+        id,
+        // Cargo aboard, at a planet that buys it: always something you can do.
+        can: 1,
+        sure: 1,
+        score: margin,
+        label: dict.goodName(id),
+        note: margin > 0
+          ? t('deal.sell.profit', { held, price: digits(bid), margin: money(margin) })
+          : margin < 0
+            ? t('deal.sell.loss', { held, price: digits(bid), margin: money(-margin) })
+            : t('deal.sell.flat', { held, price: digits(bid) }),
+        tone: margin > 0 ? 'good' : margin < 0 ? 'bad' : '',
+      });
+      // One card per commodity, and the sale takes it: "sell your medicine" and
+      // "you cannot afford medicine" side by side is the same word twice and a
+      // slot spent on it.
+      continue;
+    }
+
+    const price = engine.marketBuyPrice(state, id);
+    const stock = sys.qty?.[id] ?? 0;
+    if (!price || stock <= 0) continue;
+    const most = affordable(engine, state, id);
+    const best = bestDestination(id, legs);
+
+    if (best) {
+      const margin = best.price - price;
+      found.push({
+        kind: 'buy',
+        id,
+        can: most > 0 ? 1 : 0,
+        sure: 1,
+        score: margin,
+        label: dict.goodName(id),
+        note: most <= 0
+          ? t('deal.buy.broke', { price: digits(price), system: best.sys.nameId, sells: digits(best.price), margin: money(margin) })
+          : t('deal.buy', {
+            price: digits(price),
+            most,
+            system: best.sys.nameId,
+            sells: digits(best.price),
+            fuel: best.fuel,
+            margin: money(margin),
+          }),
+        tone: margin <= 0 ? 'warn' : most > 0 ? 'good' : '',
+      });
+      continue;
+    }
+
+    /**
+     * Nowhere in range has been visited, which is most of the first hour.
+     *
+     * Naming a price at a system nobody has been to would be the panel handing
+     * over what the run has not earned — the chart says "never visited" about
+     * those systems for the same reason. So the card falls back on two things
+     * that are honestly known here: what this commodity usually goes for on a
+     * planet like this one, which is a function of the tech level, economy and
+     * politics printed at the top of the panel; and which way it wants to be
+     * carried, which is a fact about the commodity and never changes.
+     *
+     * Only when it is under the usual price. A card saying "this is dear and
+     * you have no idea who wants it" is not a deal, and the deck is short by a
+     * card, which is itself the answer.
+     */
+    const usual = engine.standardPrice(engine.TRADE_GOODS[id], sys);
+    const discount = usual - price;
+    if (!usual || discount < 0) continue;
+    const slope = engine.TRADE_GOODS[id].pricePerTech ?? 0;
+    found.push({
+      kind: 'buy',
+      id,
+      can: most > 0 ? 1 : 0,
+      sure: 0,
+      score: discount,
+      label: dict.goodName(id),
+      note: t(most > 0 ? 'deal.buy.blind' : 'deal.buy.blind.broke', {
+        price: digits(price),
+        compare: discount > 0 ? t('deal.compare.cheap', { margin: money(discount) }) : t('deal.compare.usual'),
+        carry: slope > 0 ? t('deal.carry.up') : slope < 0 ? t('deal.carry.down') : t('deal.carry.flat'),
+      }),
+      tone: most > 0 && discount > 0 ? '' : 'warn',
+    });
+  }
+
+  found.sort((a, b) => (b.can - a.can) || (b.sure - a.sure) || (b.score - a.score));
+  return found.slice(0, limit).map((deal) => ({
+    label: deal.label,
+    note: deal.note,
+    image: pictures[deal.id] ?? '',
+    tone: deal.tone,
+    action: `deal-${deal.kind}-${deal.id}`,
+  }));
+}
+
+/**
+ * The deck, with the way out of it on the end.
+ *
+ * Kept in the scene rather than dealt on demand, which is what makes it a
+ * reference and not a question: the app hides its own chooser button when a
+ * scene has no cards, and throws a chooser open unasked only when the scene
+ * offers no moves at all. This one always offers moves, so it opens when the
+ * player asks for it and never over the top of anything.
+ *
+ * The last card is the whole table. The chooser has no close button by design —
+ * a question with a way out is a question that never gets answered — so a deck
+ * used as a reference has to carry its own answer, and "show me everything"
+ * is the honest one.
+ */
+export function marketCards(engine, dict, state, options = {}) {
+  const items = deals(engine, dict, state, options);
+  items.push({ label: t('deal.table.label'), note: t('deal.table.note'), action: 'deal-table' });
+  return { label: t('deal.label', { system: engine.currentSystem(state).nameId }), items };
+}
+
 /* ---------- the lists behind the sheet ---------- */
 
 function marketGroups(engine, dict, state) {
@@ -455,7 +640,7 @@ export function moves(engine, state, { armedRestart = false } = {}) {
  * screen would be the one the player trusts.
  */
 export function snapshot(engine, dict, state, options = {}) {
-  const { sheetView = 'market', armedRestart = false, image = '', amount = null } = options;
+  const { sheetView = 'market', armedRestart = false, image = '', pictures = {}, amount = null } = options;
   const sys = engine.currentSystem(state);
   const ship = state.ship;
   const wrecked = isWrecked(state);
@@ -526,6 +711,14 @@ export function snapshot(engine, dict, state, options = {}) {
     groups: groupsFor(engine, dict, state, sheetView),
     actions: moves(engine, state, { armedRestart }),
     board: board(engine, dict, state, image),
+    /**
+     * The deck, whenever there is a market to deal from.
+     *
+     * A wrecked ship is not shopping, and a planet that trades in nothing has
+     * no hand to deal — in both cases the app hides its chooser button rather
+     * than offering an empty window.
+     */
+    cards: wrecked ? null : marketCards(engine, dict, state, { pictures }),
   };
 
   /**

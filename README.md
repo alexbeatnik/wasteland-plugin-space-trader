@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.1.0.
+with the model reading the position over your shoulder. Version 2.2.0.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -34,19 +34,43 @@ living through.
 there is a shipyard and something to spend it on. The engine decides what is in that row — a full
 tank is not offered fuel — so the model neither invents the list nor recites it.
 
-**Looking costs nothing.** MARKET, SHIP, JOBS and NEWS open the sheet on one list each: no turn, no
-model, no tokens. Reading your own manifest is not a thing to ask a language model to do for you.
+**Looking costs nothing.** MARKET deals the hand below; SHIP, JOBS and NEWS open the sheet on one
+list each. No turn, no model, no tokens. Reading your own manifest is not a thing to ask a language
+model to do for you.
 
 **The chart** — the `CHART` button. The ship at the centre, the systems around it where they
 actually are, and a line to every one the tank will reach; press one and you jump. What is out of
 range is still drawn, because knowing that Nyle is two hops past the fuel is how a route gets
 planned, but it is a label rather than a button.
 
-**Trading is a number, so the panel asks for one.** Press a commodity on the MARKET sheet and a
-single field opens with the price and the ceiling already worked out — "Water — 55 cr each, 18
+**The market is dealt, not listed.** MARKET turns the panel into a hand of cards, one commodity
+each, with the decision already worked out on it:
+
+> **Furs** — 4 aboard, and they pay 360 here — 302 cr a unit more than you gave for it. Press to sell.
+>
+> **Water** — 46 cr here, and 21 is what the credits and the hold allow. Nyle was paying 89, 10 fuel
+> away — 43 cr a unit. Press to buy.
+
+The table said what water costs. It never said whether to buy any, which is the only question a
+trader is actually asking, and answering it takes two things no column ever held: what the hold
+already cost, and what the systems in range pay. Buying and selling are ranked against each other on
+one number — what a bay of it is worth — after two that come first: whether it can be pressed at all
+with the credits in hand, and whether the price on it is remembered or guessed.
+
+**Nothing on a card is a secret.** Every price quoted is from a system this run has already visited.
+Early on that is nowhere, and the card says so and falls back on what is honestly known here — what
+the commodity usually goes for on a planet like this one, and which way up the tech ladder it wants
+carrying. A guess is never drawn as a certainty and never outranks a deal that can be taken.
+
+**Trading is a number, so the panel asks for one.** Press a card — or a row on the full table — and a
+single field opens with the price and the ceiling already worked out: "Water — 55 cr each, 18
 affordable". Type an amount, or leave it empty for as many as the credits and the hold allow. The
 trade happens there; the words it stands for go into the conversation so the transcript reads as
 though you had typed them.
+
+**The whole table is still one press away** — the last card in the deck, and the app's own sheet
+button. Eight cards is a hand; eighteen commodities is a spreadsheet, and the sheet is where a
+spreadsheet belongs.
 
 **The job board.** Contracts are a list on a planet, and a list is what the sheet is for. JOBS shows
 what you have taken on and what this port is offering; press an offer to take it, press a contract to
@@ -213,10 +237,15 @@ If it has been removed from that list, the registry is this repository:
 On Windows, Wasteland Next keeps its data in `%APPDATA%\Wasteland Next`. The installed plugin lands
 in `plugins\space-trader` and the saved run in `plugin-state\space-trader.json`.
 
-**A picture behind the chart**, if you want one. Drop `chart.png`, `chart.jpg`, `chart.jpeg`,
-`chart.webp` or `chart.gif` into the plugin's data directory and the board draws its markers over it:
+**Pictures**, if you want them. Drop them into the plugin's data directory:
 
     %APPDATA%\Wasteland Next\plugin-data\space-trader\
+
+- `chart.png` — behind the star chart, with the markers drawn over it. `.jpg`, `.jpeg`, `.webp` and
+  `.gif` work too.
+- `good-water.png`, `good-furs.png`, `good-narcotics.png` … — on the market card for that commodity.
+  The id is the game's own, the same word the moves are typed with, so there is one vocabulary to
+  learn rather than two.
 
 None is shipped, deliberately. The galaxy is generated afresh for every run, so a painted starfield
 would be showing stars that are not there; the markers, the names and the jump legs are drawn by the
@@ -306,6 +335,24 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 both read the same save, which is what stops the screen and the prompt describing two different runs.
 
 ---
+
+## What changed in 2.2.0
+
+- **The market is a hand of cards.** MARKET deals one commodity per card with the decision worked
+  out on it — what it costs here, where in range pays more, how much fuel that is, and what the
+  difference comes to a bay. The table it replaced is the last card in the deck, and the app's own
+  sheet button.
+- **Ranked by what can be done.** Three questions in order: could this be pressed right now with the
+  credits in hand; is the number on it remembered or guessed; and what is a bay of it worth. A
+  certainty nobody can afford is worth less at the top of the deck than a deal somebody can take.
+- **A guess is drawn as a guess.** Nothing quotes a price at a system the run has not visited — the
+  chart says "never visited" about those for the same reason. With nowhere known, the card falls
+  back on what this planet's own tech level, economy and politics imply the thing is worth, and on
+  which way up the tech ladder it wants carrying.
+- **One card per commodity**, and a sale takes it: "sell your medicine" and "you cannot afford
+  medicine" side by side is the same word twice.
+- **Pictures for the cards.** `good-water.png` in the plugin's data directory lands on the card that
+  offers to buy water, as `chart.png` already landed behind the chart. None is shipped.
 
 ## What changed in 2.1.0
 

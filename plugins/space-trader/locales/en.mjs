@@ -146,6 +146,24 @@ not produce this turn.
   'panel.entry.amount.hint': 'a number, or leave it empty for as many as possible',
   'panel.entry.amount.submit': 'DO IT',
 
+  /* ---------- the deck ---------- */
+
+  'deal.label': 'What is worth doing at {system}',
+  'deal.sell.profit': '{held} aboard, and they pay {price} here — {margin} a unit more than you gave for it. Press to sell.',
+  'deal.sell.loss': '{held} aboard. They pay {price} here, which is {margin} a unit less than you gave. Press to sell.',
+  'deal.sell.flat': '{held} aboard, and they pay {price} here — exactly what you gave for it. Press to sell.',
+  'deal.buy': '{price} here, and {most} is what the credits and the hold allow. {system} pays {sells}, {fuel} fuel away — {margin} a unit. Press to buy.',
+  'deal.buy.broke': '{price} here. {system} pays {sells}, which would be {margin} a unit — but not one of them is affordable.',
+  'deal.buy.blind': '{price} here — {compare}, and {carry}. No destination known yet. Press to buy.',
+  'deal.buy.blind.broke': '{price} here — {compare}, and {carry} — but not one of them is affordable.',
+  'deal.compare.cheap': '{margin} under the usual price for a planet like this',
+  'deal.compare.usual': 'about the usual price here',
+  'deal.carry.up': 'worth more the higher the tech level',
+  'deal.carry.down': 'worth more the lower the tech level',
+  'deal.carry.flat': 'much the same price everywhere',
+  'deal.table.label': 'THE WHOLE TABLE',
+  'deal.table.note': 'Every commodity this planet trades, both ways, with what is in the hold beside it.',
+
   /* ---------- the chart ---------- */
 
   'board.here': 'you are here',
@@ -157,7 +175,7 @@ not produce this turn.
   /* ---------- the row of moves ---------- */
 
   'move.market.label': 'MARKET',
-  'move.market.hint': 'what this planet sells, and what is in the hold',
+  'move.market.hint': 'what is worth buying or selling here, dealt as a hand',
   'move.chart.label': 'CHART',
   'move.chart.hint': 'the systems the tank will reach',
   'move.ship.label': 'SHIP',
