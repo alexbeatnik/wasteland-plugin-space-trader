@@ -462,20 +462,21 @@ export function activate(ctx) {
       '',
       t('screen.chart.inRange'),
     ];
-    for (const { sys, fuel, distance } of targets) {
+    for (const { sys, fuel, distance, wormhole } of targets) {
       lines.push(
-        `  ${sys.nameId.padEnd(12)} ${String(Math.round(distance)).padStart(3)} pc   ${String(fuel).padStart(2)} fuel   ` +
-          (sys.visited ? `tech ${sys.techLevel}  ${sys.economyType}` : t('screen.chart.unvisited')),
+        `  ${sys.nameId.padEnd(12)} ${String(Math.round(distance)).padStart(3)} pc   ` +
+          (wormhole ? t('screen.chart.wormhole', { tax: engine.wormholeTax(state) }) : `${String(fuel).padStart(2)} fuel  `) +
+          '   ' + (sys.visited ? `tech ${sys.techLevel}  ${sys.economyType}` : t('screen.chart.unvisited')),
       );
     }
     if (!targets.length) lines.push(t('screen.chart.nothing'));
 
     return {
       summary: lines.join('\n'),
-      choices: targets.map(({ sys, fuel }) => ({
+      choices: targets.map(({ sys, fuel, wormhole }) => ({
         id: `warp:${sys.id}`,
         label: t('screen.chart.warp', { system: sys.nameId }),
-        note: t('screen.chart.fuel', { fuel }),
+        note: wormhole ? t('screen.chart.wormhole', { tax: engine.wormholeTax(state) }) : t('screen.chart.fuel', { fuel }),
       })),
     };
   }
@@ -616,6 +617,34 @@ export function activate(ctx) {
   }
 
   /**
+   * The cue from the name field, wherever it lands.
+   *
+   * The panel makes the commander itself and then sends a few words so the
+   * transcript has a line in it — nothing has happened in the run yet, and the
+   * only thing left is for the model to introduce it. Which action those words
+   * arrive at is the model's choice, and it gets it wrong: a real session had
+   * the cue relayed to the *move* action with no steps at all, which answered
+   * "«» is not a move" and left a new commander being told to press buttons
+   * that do not exist.
+   *
+   * So both doors answer it, and an empty relay counts: a model that passed
+   * nothing on while a run is waiting to be introduced meant this and could
+   * have meant nothing else.
+   */
+  async function openingTurn(doc, state, said) {
+    if (!state || doc.opening !== true) return null;
+    if (said && !isIntro(said)) return null;
+    const next = withGame(doc, state, {});
+    delete next.opening;
+    await save(next);
+    return {
+      ok: true,
+      summary: status(engine, dict, state),
+      feedback: openingNote(state, doc.background),
+    };
+  }
+
+  /**
    * A move that did not happen.
    *
    * The position goes back with it on purpose: a refusal the model cannot act on
@@ -687,23 +716,11 @@ export function activate(ctx) {
         };
       }
 
-      /**
-       * The cue from the name field, with the commander already made.
-       *
-       * Before every other pattern, because it reads like a request to start a
-       * game and would otherwise be answered by the resume note — a briefing
-       * about a run nobody has flown yet.
-       */
-      if (state && doc.opening === true && isIntro(said)) {
-        const next = withGame(doc, state, {});
-        delete next.opening;
-        await save(next);
-        return {
-          ok: true,
-          summary: status(engine, dict, state),
-          feedback: openingNote(state, doc.background),
-        };
-      }
+      // Before every other pattern, because the cue reads like a request to
+      // start a game and would otherwise be answered by the resume note — a
+      // briefing about a run nobody has flown yet.
+      const opening = await openingTurn(doc, state, said);
+      if (opening) return opening;
 
       /**
        * Closing is the player's, and only the player's.
@@ -859,16 +876,39 @@ export function activate(ctx) {
     async run(steps) {
       await load();
       const doc = (await ctx.state.get()) ?? {};
+      const said = String(steps ?? '').trim();
+
+      /**
+       * A commander still being made.
+       *
+       * There is no game to move in, and the question on screen is answered by
+       * pressing a card. Answered here rather than left to fall through to "no
+       * game is running", which is true and unhelpful: what the player needs to
+       * hear is that the cards are waiting.
+       */
+      if (doc.setup) {
+        await paint(doc);
+        return { ok: true, summary: t('ui.pickBackground'), feedback: t('note.pickBackground') };
+      }
+
       const state = await read();
       if (!state) {
         return { ok: false, summary: t('ui.notStarted'), feedback: t('note.noGame') };
       }
       if (doc.narrate) return narrated(doc, state);
 
-      const said = String(steps ?? '').trim();
+      // The cue from the name field, which the model relays to whichever action
+      // it feels like — including this one, with nothing in it.
+      const opening = await openingTurn(doc, state, said);
+      if (opening) return opening;
+
       // Nothing is bought, sold or jumped while there is shooting: the ship is
       // in somebody's sights, and the moves that exist there are the fight's.
       if (doc.fight && fight.current(doc.fight)) return fightByWord(doc, state, said);
+
+      // A move action called with nothing in it. Refused in its own words: the
+      // alternative reads «» — це не хід, which is a sentence about nothing.
+      if (!said) return refuse(state, t('refuse.noMove'));
 
       const [, verb = '', rest = ''] = said.match(/^(\S+)\s*(.*)$/s) ?? [];
       const move = verb.toLowerCase();

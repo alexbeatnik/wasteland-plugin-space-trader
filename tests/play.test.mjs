@@ -22,6 +22,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { activate } from '../plugins/space-trader/main.mjs';
 
+/** A line break, named because an escape here has to survive too much quoting. */
+const BREAK = String.fromCharCode(10);
+
 /** Everything `ctx` is, and nothing the plugin is not entitled to. */
 function harness({ settings = {} } = {}) {
   const actions = new Map();
@@ -247,7 +250,13 @@ test('a jump spends fuel and arrives somewhere else', async () => {
   // over. Everything else about the jump has to be true either way.
   assert.equal(result.ok, after.ship.hull > 0);
   assert.notEqual(after.currentSystem, before.currentSystem);
-  assert.ok(after.ship.fuel < before.ship.fuel, 'the jump cost no fuel');
+  // Unless it was through the wormhole, which takes a toll in credits and no
+  // fuel at all. It only ever appears in this list when the far end is inside
+  // the tank's range as well — rare, and the reason this used to fail about
+  // once in fifty runs.
+  const throughWormhole = before.systems[before.currentSystem].wormholeTo === after.currentSystem;
+  if (throughWormhole) assert.ok(after.credits < before.credits, 'the wormhole took no toll');
+  else assert.ok(after.ship.fuel < before.ship.fuel, 'the jump cost no fuel');
   assert.match(result.summary, /Arrived at /);
 });
 
@@ -453,4 +462,30 @@ test('the news screen prints what is being reported, and does not throw on it', 
   assert.equal(result.ok, true);
   assert.doesNotMatch(result.summary, /undefined/);
   assert.doesNotMatch(result.summary, /news\.coldSnap/);
+});
+
+test('a wormhole in range is marked as one, not priced in fuel', async () => {
+  // The engine takes a toll in credits for that leg and no fuel at all, and the
+  // chart was quoting a fuel figure beside it that would never be charged. It
+  // only turns up in the in-range list when the far end is inside the tank's
+  // range as well, which is why it went unnoticed.
+  const app = await started();
+  const state = JSON.parse(app.document.save);
+  const here = state.systems[state.currentSystem];
+  const near = state.systems.find((sys) => sys.id !== here.id
+    && Math.hypot(sys.x - here.x, sys.y - here.y) <= state.ship.fuel);
+  here.wormholeTo = near.id;
+  app.document.save = JSON.stringify(state);
+
+  const chart = await app.show('chart');
+  const line = chart.summary.split(BREAK).find((row) => row.includes(near.nameId));
+  assert.match(line, /wormhole, \d+ cr/);
+  assert.doesNotMatch(line, /\d+ fuel/);
+  const choice = chart.choices.find((entry) => entry.id === `warp:${near.id}`);
+  assert.match(choice.note, /wormhole/);
+
+  // And the model is told the same thing rather than a fuel cost it would
+  // advise against.
+  const briefing = await app.context();
+  assert.ok(briefing.includes(`${near.nameId} (wormhole)`), briefing);
 });

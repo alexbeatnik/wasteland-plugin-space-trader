@@ -39,6 +39,10 @@ told which are on the row this turn, so never name a button, never say "press
 2", and never invent one — say what to do and let them find it. Everything on
 the row can also be typed, so a move is never out of reach.
 
+Never call either action with empty "steps". If the game sends a short line of
+its own after a run begins, pass it to "space_trader" as it stands, or simply
+answer — never as a move.
+
 MOVES — {"type":"space_trader_move","steps":"<move>"}
 
 buy 10 water · sell all ore · warp Omega · refuel · repair
@@ -340,7 +344,7 @@ not produce this turn.
   'setup.needBackground': 'Choose a background first.',
   'setup.needName': 'The commander needs a name.',
   'setup.backgroundTaken': 'That question has been answered.',
-  'setup.intro.words': 'the launch',
+  'setup.intro.words': 'so where are we starting?',
 
   /* ---------- lines for the status bar ---------- */
 
@@ -379,7 +383,7 @@ not produce this turn.
   'note.moveMade': 'The move was made and the position below is the one after it: {text}. Say what happened in one or two sentences. Do not make another move.',
   'note.turnResult': '{text}',
   'note.screen': '[SPACE TRADER] The {screen} screen is on the user\'s screen.',
-  'note.refused': '[SPACE TRADER] That move was refused: {reason}. Tell the user and do not retry it.',
+  'note.refused': '[SPACE TRADER] That move was refused: {reason}. Tell the user and do not retry it. Any move named in that sentence is a phrase to write in the conversation, NOT a button — never present them as a list of buttons to press, and never name a button at all.',
   'note.closed': 'SPACE TRADER: the game has been put away. There is no ship, no cargo and no market. Do not carry on the game from the conversation above, do not invent prices or jumps, and do not call the game\'s actions. If the user wants to fly again, tell them to say "resume the game" — that reopens the saved run.',
   'note.cannotClose': 'Closing the game is not yours to do. The user has a CLOSE button on their own row of moves — tell them it is there. Do not say the game is closed.',
   'note.cannotRestart': 'Abandoning a run is not yours to do. The user has a NEW GAME button on their own row of moves — tell them it is there. Do not say a new game has started.',
@@ -424,6 +428,7 @@ not produce this turn.
   'screen.chart.legend': '@ you   O visited, in range   o in range   . seen',
   'screen.chart.unvisited': 'never visited',
   'screen.chart.fuel': '{fuel} fuel',
+  'screen.chart.wormhole': 'wormhole, {tax} cr',
   'screen.chart.warp': 'Warp to {system}',
 
   'screen.ship.head': 'SHIP — {ship}',
@@ -453,6 +458,7 @@ not produce this turn.
   'refuse.notCommodity': '"{what}" is not a commodity in this game',
   'refuse.noSystem': 'there is no system called "{what}" on the chart',
   'refuse.nothingTo': 'there is nothing to {move} there',
+  'refuse.noMove': 'no move was named — buy, sell, warp, refuel and repair are the words',
   'refuse.unknownMove': '"{what}" is not a move — buy, sell, warp, refuel and repair are',
   'refuse.marketRefused': 'the market refused that',
   'refuse.jumpRefused': 'that jump is not possible',
@@ -470,6 +476,7 @@ not produce this turn.
   'brief.carrying': 'Carrying: {cargo}',
   'brief.empty': 'Hold empty.',
   'brief.inRange': 'In range: {systems}',
+  'brief.wormhole': 'wormhole',
   'brief.stranded': 'In range: nowhere — out of fuel',
   'brief.opening': 'Commander {commander} is a {background} by trade, flying a Flea: {bays} cargo bays, a pulse laser, no shields. The run has only just begun, and the position is:',
 
@@ -501,7 +508,9 @@ not produce this turn.
   're.close': '\\b(close the game|put the game away|quit the game|stop playing)\\b',
   're.resume': '\\b(resume the game|resume|come back to the game|open the game again|back aboard)\\b',
   're.start': '\\b(start the game|play space trader|open the game|let\'s play)\\b',
-  're.intro': '^\\s*(the launch|launch)\\s*$',
+  // The old cue is still listened for: a run interrupted before the model
+  // relayed it comes back with those words already in the transcript.
+  're.intro': '^\\s*(so where are we starting\\??|where are we starting\\??|the launch|launch)\\s*$',
   're.status': '^(status|position|where)',
   're.market': '^(market|price|trade)',
   're.chart': '^(chart|map|galaxy)',

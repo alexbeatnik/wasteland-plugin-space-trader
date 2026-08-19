@@ -353,6 +353,18 @@ both read the same save, which is what stops the screen and the prompt describin
   medicine" side by side is the same word twice.
 - **Pictures for the cards.** `good-water.png` in the plugin's data directory lands on the card that
   offers to buy water, as `chart.png` already landed behind the chart. None is shipped.
+- **Fixed: a brand new run could be answered with "«» is not a move".** The panel makes the commander
+  and then sends a few words so the transcript has a line in it. Which action the model relays those
+  words to is the model's choice, and it got it wrong: they arrived at the *move* action with nothing
+  in them, were refused as an empty move, and a player one press into their first game was handed a
+  list of moves that the model then presented as buttons to press. Both doors answer the cue now, an
+  empty relay counts as it — nothing else it could have meant — and the cue is phrased as a question
+  rather than as a noun that reads like an order.
+- **Fixed: a refused move taught the model to invent buttons.** The refusal names the moves that do
+  exist, and a model turned that list into controls. It now says in as many words that they are
+  phrases to write and not buttons.
+- **A move made while the cards are still up** points at the cards, instead of answering "no game is
+  running" — which is true, and not what the player needs to hear.
 
 ## What changed in 2.1.0
 

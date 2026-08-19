@@ -149,8 +149,10 @@ test('the background is answered by pressing, and the name by typing into the ga
 
   const made = await app.act('name', 'Jameson');
   // A cue rather than a move: the run exists, nothing has happened in it, and
-  // the only thing left is for the model to introduce it.
-  assert.equal(made.submit, 'the launch');
+  // the only thing left is for the model to introduce it. Phrased as a question
+  // because a noun that reads like an order gets relayed as one — "the launch"
+  // was, to the move action, with nothing in it.
+  assert.match(made.submit, /where are we starting/);
   assert.equal(app.game.commanderName, 'Jameson');
   assert.equal(app.game.skills.pilot, 9);
 });
@@ -731,4 +733,63 @@ test('a picture dropped in the data directory lands on the card that wants it', 
   for (const card of app.drawn.cards.items) {
     assert.ok(!String(card.image ?? '').endsWith('.txt'), 'a text file was hung on a card');
   }
+});
+
+test('the cue that opens a run is answered at whichever action it arrives', async () => {
+  // Reported from a real session: the panel made the commander and sent its
+  // cue, the model relayed it to the *move* action with no steps at all, and a
+  // brand new run was answered with "«» is not a move" and a list of moves the
+  // model then presented as buttons that do not exist.
+  const app = harness();
+  await app.show('new game');
+  await app.act('background-trader');
+  const made = await app.act('name', 'Jameson');
+
+  const relayed = await app.move(made.submit);
+  assert.equal(relayed.ok, true, relayed.summary);
+  assert.match(relayed.feedback, /Introduce it in two or three sentences/);
+  assert.doesNotMatch(relayed.summary, /is not a move/);
+  // And the run is introduced once: the flag is spent.
+  assert.equal(app.document.opening, undefined);
+});
+
+test('a move relayed with nothing in it, while a run waits to be introduced', async () => {
+  const app = harness();
+  await app.show('new game');
+  await app.act('background-trader');
+  await app.act('name', 'Jameson');
+
+  // What the model actually did. Nothing else it could have meant.
+  const empty = await app.move('');
+  assert.equal(empty.ok, true, empty.summary);
+  assert.match(empty.feedback, /Introduce it in two or three sentences/);
+});
+
+test('a move with nothing in it is refused in its own words', async () => {
+  const app = await flying();
+  await app.show('the launch');
+  const empty = await app.move('   ');
+  assert.equal(empty.ok, false);
+  assert.doesNotMatch(empty.summary, /«»|""/);
+  assert.match(empty.summary, /no move was named/);
+});
+
+test('a refused move does not hand the model a row of buttons to invent', async () => {
+  // The refusal names the moves, and a model turned that list into "press buy,
+  // press sell, press warp" — controls that have never existed.
+  const app = await flying();
+  await app.show('the launch');
+  const refused = await app.move('mine the asteroid belt');
+  assert.equal(refused.ok, false);
+  assert.match(refused.feedback, /NOT a button/);
+  assert.match(refused.feedback, /never name a button/);
+});
+
+test('a move made while the cards are still up points at the cards', async () => {
+  const app = harness();
+  await app.show('new game');
+  const answered = await app.move('buy 10 water');
+  assert.equal(answered.ok, true);
+  assert.match(answered.summary, /background/i);
+  assert.equal(app.game, null, 'a commander was made by a move');
 });

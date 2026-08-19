@@ -111,7 +111,14 @@ export function chart(engine, state, { width = CHART_W, height = CHART_H } = {})
   return lines.join('\n');
 }
 
-/** Systems the ship can actually reach, nearest first — the chart's legend. */
+/**
+ * Systems the ship can actually reach, nearest first — the chart's legend.
+ *
+ * A wormhole is marked, because the fuel figure beside it is a lie: the engine
+ * charges a toll in credits for that leg and no fuel at all. It only turns up
+ * in this list when the far end happens to be inside the tank's range as well,
+ * which is rare and was rarer still to notice — a jump that spent nothing.
+ */
 export function destinations(engine, state, limit = 8) {
   const here = engine.currentSystem(state);
   return engine
@@ -121,6 +128,7 @@ export function destinations(engine, state, limit = 8) {
       sys,
       fuel: engine.fuelCost(state, sys.id),
       distance: engine.systemDistance(here, sys),
+      wormhole: here.wormholeTo === sys.id,
     }))
     .sort((a, b) => a.distance - b.distance)
     .slice(0, limit);
@@ -266,7 +274,7 @@ export function briefing(engine, dict, state) {
     .map((id) => `${id} ${ship.cargo[id]}`)
     .join(', ');
   const inRange = destinations(engine, state, 6)
-    .map((d) => `${d.sys.nameId} (${d.fuel})`)
+    .map((d) => `${d.sys.nameId} (${d.wormhole ? t('brief.wormhole') : d.fuel})`)
     .join(', ');
 
   return [
