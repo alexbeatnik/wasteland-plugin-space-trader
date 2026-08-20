@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.3.0.
+with the model reading the position over your shoulder. Version 2.3.1.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -117,7 +117,7 @@ near cripple is not always the better shot.
 **A hauler is not a gunfight.** A lone trader met in transit keeps a stall: three to six goods it
 will sell and a few it will buy, priced off the base rather than off any market — a shop three
 parsecs from anywhere, which no chart knows about. The engine has dealt one to every solitary trader
-since the encounter was written, and until 2.3.0 nothing in the plugin could reach it. TRADE opens
+since the encounter was written, and until 2.3.1 nothing in the plugin could reach it. TRADE opens
 the two price lists behind the sheet, a row opens the field, and the buying is the same field a
 planet's market uses. It costs no turn either. Firing on them shuts it — the hint on FIRE says so
 before the press, because it does not come back: they become an enemy and you become a pirate.
@@ -370,7 +370,7 @@ both read the same save, which is what stops the screen and the prompt describin
 
 ---
 
-## What changed in 2.3.0
+## What changed in 2.3.1
 
 - **A hauler's stall can be shopped at.** The engine gives every lone trader met in transit a hand of
   goods to sell and a short list to buy, and no version of this plugin could reach a line of it: a
@@ -465,7 +465,7 @@ both read the same save, which is what stops the screen and the prompt describin
   the shooting stops. The model narrates a fight it did not decide, and is told on every turn of one
   not to narrate rounds, not to say who won, and not to invent damage.
 - **FIGHT IT OUT and RUN FOR IT** hand the rest of it over — every ship left on the leg, not only the
-  one in front. Until 2.3.0 that was one button reading a settings row; the row is gone and the
+  one in front. Until 2.3.1 that was one button reading a settings row; the row is gone and the
   choice is made where it is made. On a host with no panel there is nothing to press, and a fight
   there runs and submits to the police.
 - **A fight is in the save.** Close the app in the middle of a boarding action and it is still there,

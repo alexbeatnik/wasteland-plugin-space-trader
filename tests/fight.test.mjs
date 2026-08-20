@@ -311,7 +311,7 @@ test('RUN FOR IT settles the lot the other way', async () => {
 });
 
 /**
- * The posture was a settings row until 2.3.0 — one standing answer, given
+ * The posture was a settings row until 2.3.1 — one standing answer, given
  * before the jump, to a question that is different every time somebody stops
  * you. It is two buttons now, pressed against a position that is on screen.
  */
