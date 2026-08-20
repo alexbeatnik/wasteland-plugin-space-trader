@@ -26,7 +26,7 @@
  * being fought, everything said so far, and the arrival that is waiting for the
  * shooting to stop.
  */
-import { clip, credits as money, t } from './words.mjs';
+import { clip, credits as money, group as digits, t } from './words.mjs';
 
 /** A loop around somebody else's state machine wants a bound. */
 const MAX_ROUNDS = 60;
@@ -117,6 +117,76 @@ export function canPlunder(engine, state, encounter) {
   if (!encounter || encounter.status !== 'oppSurrendered') return false;
   if (engine.freeCargoBays(state.ship) <= 0) return false;
   return engine.GOOD_IDS.some((id) => (encounter.opponent.cargo?.[id] ?? 0) > 0);
+}
+
+/**
+ * The stall a lone hauler keeps.
+ *
+ * The engine deals every solitary trader a hand of goods it will sell and a
+ * short list it will buy, priced off the base rather than off any market — a
+ * caravan met three parsecs out is a market no chart knows about, which is the
+ * whole point of it. None of it was reachable from here: the plugin's fight had
+ * a row of buttons and a row cannot hold a price list, so the one encounter in
+ * the game that is not a gunfight was fought like one.
+ *
+ * It closes the moment the first shot is fired — `isPeacefulTrader` is false
+ * from then on — and the engine refuses both sides once the encounter stops
+ * being `ongoing`. Asked here as well, because a row that can be pressed into
+ * a refusal is a row that should not have been drawn.
+ */
+export function canTrade(engine, encounter) {
+  return Boolean(
+    encounter
+    && encounter.kind === 'trader'
+    && encounter.status === 'ongoing'
+    && encounter.trade
+    && engine.isPeacefulTrader(encounter),
+  );
+}
+
+/**
+ * How many of one good may change hands, on whichever side of it.
+ *
+ * Three ceilings on the way in — their stock, the credits and the free bays —
+ * and one on the way out, which is what is aboard. The engine applies the same
+ * limits itself and would simply sell fewer; worked out here so the field can
+ * open with the answer in it rather than with a number that gets quietly cut.
+ */
+export function tradeCeiling(engine, state, encounter, kind, good) {
+  if (kind === 'tradeSell') return state.ship.cargo?.[good] ?? 0;
+  const offer = encounter?.trade?.sells?.[good];
+  if (!offer || offer.price <= 0) return 0;
+  return Math.max(0, Math.min(offer.qty, engine.freeCargoBays(state.ship), Math.floor(state.credits / offer.price)));
+}
+
+/** What a unit costs on their terms, whichever way it is going. */
+function tradePrice(encounter, kind, good) {
+  return kind === 'tradeSell'
+    ? encounter?.trade?.buys?.[good] ?? 0
+    : encounter?.trade?.sells?.[good]?.price ?? 0;
+}
+
+/**
+ * How many, at their price.
+ *
+ * The same one-line field the market uses, and deliberately the same shape: a
+ * trade is a number wherever it happens, and a player who has bought water on a
+ * planet should not have to learn a second way to buy it in space.
+ */
+export function tradeEntry(engine, dict, state, encounter, { kind, good }) {
+  const most = tradeCeiling(engine, state, encounter, kind, good);
+  return {
+    action: 'amount',
+    label: t(kind === 'tradeSell' ? 'fight.entry.sell' : 'fight.entry.buy', {
+      good: dict.goodName(good),
+      price: digits(tradePrice(encounter, kind, good)),
+      max: most,
+    }),
+    hint: t('fight.entry.hint'),
+    placeholder: String(most),
+    value: String(most),
+    submit: t(kind === 'tradeSell' ? 'fight.entry.sellSubmit' : 'fight.entry.buySubmit'),
+  };
 }
 
 /**
@@ -246,18 +316,33 @@ export function moves(engine, state, fight, { stance = 'avoid' } = {}) {
   const list = [{
     id: 'fight-attack',
     label: t('fight.move.attack.label'),
-    hint: engine.weaponPower(state.ship) > 0
-      ? t('fight.move.attack.hint', { chance: odds(engine.playerHitChance(state, encounter)) })
-      : t('fight.move.attack.unarmed'),
+    // A hauler that has done nothing is one press away from being an enemy, and
+    // the press does not come back: `provoked` is set for the rest of the
+    // encounter, the stall closes with it, and it is piracy the law counts. The
+    // hit chance is true of that press too, and it is not what it costs.
+    hint: engine.weaponPower(state.ship) <= 0
+      ? t('fight.move.attack.unarmed')
+      : canIgnore(engine, encounter)
+        ? t('fight.move.attack.trader')
+        : t('fight.move.attack.hint', { chance: odds(engine.playerHitChance(state, encounter)) }),
     tone: 'bad',
   }];
 
   if (canIgnore(engine, encounter)) {
     list.push({ id: 'fight-ignore', label: t('fight.move.ignore.label'), hint: t('fight.move.ignore.hint'), tone: 'good' });
+    // Their stall, and only while it is open. Two price lists, so it belongs
+    // behind the sheet rather than on the row — but nothing would say the sheet
+    // had anything new in it without a button that says so.
+    if (canTrade(engine, encounter)) {
+      list.push({ id: 'fight-trade', label: t('fight.move.trade.label'), hint: t('fight.move.trade.hint'), tone: 'good' });
+    }
   } else {
+    // Under a tractor beam RUN is not running, it is pulling against the beam —
+    // a different move with a different chance, and the label should not claim
+    // otherwise.
     list.push({
       id: 'fight-flee',
-      label: t('fight.move.flee.label'),
+      label: t(encounter.tractorLocked ? 'fight.move.breakFree.label' : 'fight.move.flee.label'),
       hint: encounter.tractorLocked
         ? t('fight.move.flee.locked')
         : t('fight.move.flee.hint', { chance: odds(engine.fleeChance(state, encounter, skills.pilot)) }),
@@ -284,7 +369,17 @@ export function moves(engine, state, fight, { stance = 'avoid' } = {}) {
     });
   }
   if (encounter.kind === 'pirate' || encounter.kind === 'police' || encounter.kind === 'bountyHunter') {
-    list.push({ id: 'fight-surrender', label: t('fight.move.surrender.label'), hint: t(`fight.move.surrender.${encounter.kind}`), tone: 'warn' });
+    // Named after what they are demanding rather than after the act of giving
+    // in. A pirate wants the hold and a bounty hunter wants you, and "SURRENDER"
+    // in front of both hides the only difference that matters — one of them
+    // costs cargo and the other costs the days of a sentence.
+    const demand = encounter.demand === 'arrest' || encounter.demand === 'cargo' ? encounter.demand : 'plain';
+    list.push({
+      id: 'fight-surrender',
+      label: t(`fight.move.surrender.label.${demand}`),
+      hint: t(`fight.move.surrender.${encounter.kind}`),
+      tone: 'warn',
+    });
   }
 
   // The posture comes in from the caller rather than being read here: the
@@ -303,6 +398,55 @@ export function moves(engine, state, fight, { stance = 'avoid' } = {}) {
   return list;
 }
 
+/**
+ * Their stall, as two lists that can be pressed.
+ *
+ * What they will sell and what they will buy, in that order, because the first
+ * is the reason to stop and the second is what to do about the hold while you
+ * are stopped. A row nothing can be done with — sold out, or a good there is
+ * none of aboard — is drawn without an action rather than left out: "they want
+ * furs" is worth knowing on a run that has none, and a row that could be
+ * clicked and did nothing is the one thing worse than a row that plainly
+ * cannot.
+ */
+function tradeGroups(engine, dict, state, encounter) {
+  const trade = encounter.trade ?? {};
+
+  const onOffer = engine.GOOD_IDS
+    .filter((id) => (trade.sells?.[id]?.qty ?? 0) > 0)
+    .map((id) => {
+      const offer = trade.sells[id];
+      const most = tradeCeiling(engine, state, encounter, 'tradeBuy', id);
+      return {
+        label: dict.goodName(id),
+        note: most > 0
+          ? t('fight.row.onOffer', { price: digits(offer.price), qty: offer.qty, max: most })
+          : t('fight.row.onOfferNo', { price: digits(offer.price), qty: offer.qty }),
+        tone: most > 0 ? 'good' : '',
+        action: most > 0 ? `fight-buy-${id}` : '',
+      };
+    });
+
+  const wanted = engine.GOOD_IDS
+    .filter((id) => (trade.buys?.[id] ?? 0) > 0)
+    .map((id) => {
+      const held = state.ship.cargo?.[id] ?? 0;
+      return {
+        label: dict.goodName(id),
+        note: held > 0
+          ? t('fight.row.wanted', { price: digits(trade.buys[id]), n: held })
+          : t('fight.row.wantedNo', { price: digits(trade.buys[id]) }),
+        tone: held > 0 ? 'good' : '',
+        action: held > 0 ? `fight-sell-${id}` : '',
+      };
+    });
+
+  return [
+    { label: t('fight.group.onOffer'), empty: t('fight.group.onOffer.empty'), items: onOffer },
+    { label: t('fight.group.wanted'), empty: t('fight.group.wanted.empty'), items: wanted },
+  ];
+}
+
 /** The lists behind the sheet, while there is shooting. */
 function groups(engine, dict, state, fight) {
   const encounter = current(fight);
@@ -318,19 +462,44 @@ function groups(engine, dict, state, fight) {
       note: t('fight.row.theirCargo', { n: encounter.opponent.cargo[id] }),
     }));
 
-  // Every other ship in the group, pressable: switching target is free, and a
-  // wing of five with one cripple in it is a decision.
-  const fleet = (encounter.reserves ?? []).map((ship, index) => ({
-    label: dict.shipName(ship.shipType),
-    note: t('fight.row.reserve', { hull: ship.hull, max: ship.maxHull, distance: Math.round(ship.distance) }),
-    tone: ship.hull <= ship.maxHull * 0.25 ? 'warn' : '',
-    action: settled(encounter) ? '' : `fight-target-${index}`,
+  /**
+   * The wing, wrecks and all.
+   *
+   * The dead first because they are what is no longer coming, then everyone
+   * still flying in order of range — the order the fight is actually in, and
+   * the order the remake draws them in. Each still-flying row is pressable:
+   * switching target is free, and a wing of five with one cripple in it is a
+   * decision. The odds are on the row because that is the number the decision
+   * turns on — range costs accuracy, and the near cripple is not always the
+   * better shot.
+   */
+  const wrecks = (encounter.downed ?? []).map((type) => ({
+    label: dict.shipName(type),
+    note: t('fight.row.wreck'),
   }));
 
+  const flying = (encounter.reserves ?? [])
+    .map((ship, index) => ({ ship, index }))
+    .sort((a, b) => a.ship.distance - b.ship.distance)
+    .map(({ ship, index }) => ({
+      label: dict.shipName(ship.shipType),
+      note: t('fight.row.reserve', {
+        hull: ship.hull,
+        max: ship.maxHull,
+        distance: Math.round(ship.distance),
+        chance: odds(engine.playerHitChance(state, encounter, ship)),
+      }),
+      tone: ship.hull <= ship.maxHull * 0.25 ? 'warn' : '',
+      action: settled(encounter) ? '' : `fight-target-${index}`,
+    }));
+
   return [
+    // First while there is a stall to shop at: pressing TRADE opens the sheet,
+    // and what it opens on should be the thing that was pressed for.
+    ...(canTrade(engine, encounter) ? tradeGroups(engine, dict, state, encounter) : []),
     { label: t('fight.group.log'), empty: t('fight.group.log.empty'), items: log },
     { label: t('fight.group.theirHold'), empty: t('fight.group.theirHold.empty'), items: cargo },
-    { label: t('fight.group.fleet'), empty: t('fight.group.fleet.empty'), items: fleet },
+    { label: t('fight.group.fleet'), empty: t('fight.group.fleet.empty'), items: [...wrecks, ...flying] },
   ];
 }
 
@@ -342,7 +511,7 @@ function groups(engine, dict, state, fight) {
  * act on — accuracy falls off with it, and the two manoeuvre buttons are there
  * to move it.
  */
-export function scene(engine, dict, state, fight, { stance = 'avoid' } = {}) {
+export function scene(engine, dict, state, fight, { stance = 'avoid', amount = null } = {}) {
   const encounter = current(fight);
   if (!encounter) return null;
   const ship = state.ship;
@@ -388,6 +557,21 @@ export function scene(engine, dict, state, fight, { stance = 'avoid' } = {}) {
       value: t('fight.field.actionsValue', { left: encounter.actionsLeft, of: encounter.actionsPerRound }),
       tone: encounter.actionsLeft > 1 ? 'good' : '',
     });
+    /**
+     * Where the actions come from.
+     *
+     * A round is one volley per gunner plus a manoeuvre if anybody is spare to
+     * fly, and both halves are hired at a planet rather than fitted to the
+     * ship. Shown because the number above is otherwise a rule with no visible
+     * cause: a crew of one gets one action and no helm, and nothing on the
+     * panel said why until the second berth was paid for.
+     */
+    const stations = engine.battleStations(state);
+    fields.push({
+      label: t('fight.field.stations'),
+      value: t(stations.helm ? 'fight.field.stationsValue' : 'fight.field.stationsNoHelm', { n: stations.shots }),
+      tone: stations.helm ? '' : 'warn',
+    });
     fields.push({
       label: t('fight.field.yourOdds'),
       value: t('fight.field.percent', { n: odds(engine.playerHitChance(state, encounter)) }),
@@ -419,17 +603,29 @@ export function scene(engine, dict, state, fight, { stance = 'avoid' } = {}) {
   if (encounter.provoked) tags.push({ label: t('fight.tag.provoked'), tone: 'warn' });
   if (over) tags.push({ label: t(`fight.tag.${encounter.status}`), tone: encounter.status === 'oppDestroyed' || encounter.status === 'oppSurrendered' || encounter.status === 'playerFled' ? 'good' : 'bad' });
 
-  return {
+  const document = {
     title: t('fight.title', { who: who(dict, encounter), ship: theirShip(dict, encounter) }),
+    // A hauler with its stall open is not a round of anything, and calling it
+    // "round 1" is what made every trader read as an ambush.
     subtitle: over
       ? t(`fight.over.${encounter.status}`, { ship: theirShip(dict, encounter) })
-      : t('fight.subtitle', { round: Math.max(1, encounter.round), distance: Math.round(opponent.distance) }),
+      : canTrade(engine, encounter)
+        ? t('fight.subtitle.stall', { distance: Math.round(opponent.distance) })
+        : t('fight.subtitle', { round: Math.max(1, encounter.round), distance: Math.round(opponent.distance) }),
     meters,
     fields,
     tags,
     groups: groups(engine, dict, state, fight),
     actions: moves(engine, state, fight, { stance }),
   };
+
+  // The amount field, when a row of their stall has been pressed. Checked
+  // against the stall as well as against the question, because the answer
+  // arrives a press later and the first shot closes it in between.
+  if (amount && canTrade(engine, encounter)) {
+    document.entry = tradeEntry(engine, dict, state, encounter, amount);
+  }
+  return document;
 }
 
 /**
@@ -449,7 +645,10 @@ export function situation(engine, dict, state, fight) {
   if (!encounter) return '';
   const opponent = encounter.opponent;
   return [
-    t('fight.context.head', { who: who(dict, encounter), ship: theirShip(dict, encounter) }),
+    t(canTrade(engine, encounter) ? 'fight.context.headTrader' : 'fight.context.head', {
+      who: who(dict, encounter),
+      ship: theirShip(dict, encounter),
+    }),
     t('fight.context.ships', {
       hull: state.ship.hull,
       maxHull: engine.maxHull(state.ship),
@@ -458,9 +657,23 @@ export function situation(engine, dict, state, fight) {
       distance: Math.round(opponent.distance),
     }),
     settled(encounter) ? t(`fight.over.${encounter.status}`, { ship: theirShip(dict, encounter) }) : t('fight.context.moves'),
+    // A stall is worth naming, because it is the one encounter that is not a
+    // fight and a model told only about hulls and range advises on the shooting.
+    canTrade(engine, encounter)
+      ? t('fight.context.stall', {
+        sells: engine.GOOD_IDS
+          .filter((id) => (encounter.trade.sells?.[id]?.qty ?? 0) > 0)
+          .map((id) => `${dict.goodName(id)} ${encounter.trade.sells[id].price}`)
+          .join(', ') || t('fight.context.nothing'),
+        buys: engine.GOOD_IDS
+          .filter((id) => (encounter.trade.buys?.[id] ?? 0) > 0)
+          .map((id) => `${dict.goodName(id)} ${encounter.trade.buys[id]}`)
+          .join(', ') || t('fight.context.nothing'),
+      })
+      : '',
     t('fight.context.rule'),
     t('fight.context.said', { text: (fight.log ?? []).slice(-4).map(spoken).join(' ') || t('fight.context.nothing') }),
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 /** The last thing that happened, short enough for the status bar. */

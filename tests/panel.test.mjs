@@ -480,16 +480,22 @@ test('anything else disarms NEW GAME', async () => {
   assert.ok(app.game);
 });
 
-test('CLOSE puts the game away and keeps it', async () => {
+test('QUIT puts the game away and leaves the way back on screen', async () => {
   const app = await flying();
   const day = app.game.day;
 
   const closed = await app.act('quit');
   assert.match(closed.status, /Jameson/);
-  assert.equal(app.drawn, null, 'the panel stayed up after the game was closed');
   assert.equal(app.document.closed, true);
-  // A door, not a demolition.
+  // A door, not a demolition — and the door is drawn. The panel used to go
+  // blank here, which left typing as the only way back into a saved run.
   assert.equal(JSON.parse(app.document.save).day, day);
+  assert.equal(app.drawn.title, 'SPACE TRADER');
+  assert.deepEqual(app.drawn.actions.map((move) => move.id), ['resume', 'restart']);
+  assert.match(app.drawn.actions[0].label, /LOAD GAME/);
+  assert.match(app.drawn.fields.find((field) => field.label === 'COMMANDER').value, /Jameson/);
+  // No market, no chart, no fuel: there is no game running to act in.
+  assert.equal(app.drawn.board ?? null, null);
 
   // And the model is told the world is gone, rather than told nothing: a model
   // given nothing carries on from the transcript.
@@ -501,6 +507,39 @@ test('CLOSE puts the game away and keeps it', async () => {
   assert.equal(back.ok, true);
   assert.ok(app.drawn, 'the panel did not come back');
   assert.equal(app.game.day, day);
+});
+
+test('LOAD GAME on the menu opens the saved run again', async () => {
+  const app = await flying();
+  const day = app.game.day;
+  await app.act('quit');
+
+  const loaded = await app.act('resume');
+  assert.match(loaded.status, /Jameson/);
+  // Sent as words, so the model reads the position out on the way back in.
+  assert.match(loaded.submit, /resume/i);
+  assert.equal(app.document.closed, false);
+  assert.equal(app.game.day, day);
+  // The game's own row is back, market and all.
+  assert.ok(app.drawn.actions.some((move) => move.id === 'market'));
+});
+
+test('NEW GAME on the menu asks who is flying rather than launching one', async () => {
+  const app = await flying();
+  await app.act('quit');
+
+  // Armed on the second press, exactly as the row inside a running game is:
+  // the menu puts NEW GAME on the digit next to LOAD GAME, and the run under it
+  // is hours of trading.
+  const armed = await app.act('restart');
+  assert.match(armed.status, /Jameson/);
+  assert.equal(armed.cards ?? false, false);
+  assert.ok(app.document.save, 'one press threw the run away');
+
+  const fresh = await app.act('restart');
+  assert.equal(fresh.cards, true);
+  assert.deepEqual(app.document, { setup: {} });
+  assert.ok(app.drawn.cards, 'the backgrounds were not offered');
 });
 
 test('closing and restarting are the player\'s, and the model is refused', async () => {

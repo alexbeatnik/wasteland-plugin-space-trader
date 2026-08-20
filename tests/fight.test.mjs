@@ -306,7 +306,7 @@ test('a wing sends the next ship in, and the sheet can pick which', async () => 
     },
   });
 
-  const fleet = group(app, 'THE REST OF THE WING');
+  const fleet = group(app, 'THE WING');
   assert.equal(fleet.length, 1);
   assert.match(fleet[0].action, /^fight-target-0$/);
 
@@ -394,4 +394,164 @@ test('a Ukrainian fight is Ukrainian', async () => {
   assert.match(app.drawn.groups[0].label, /[а-яїієґ]/i);
   const fired = await app.act('fight-attack');
   assert.match(fired.status, /[а-яїієґ]/i);
+});
+
+/**
+ * The hauler's stall.
+ *
+ * The engine has dealt every lone trader a hand of goods to sell and a short
+ * list to buy since the encounter was written, and none of it was reachable
+ * from the plugin: a row of buttons cannot hold a price list, so the one
+ * encounter in the game that is not a gunfight was fought like one.
+ */
+test('a hauler met in transit keeps a stall, and it can be bought from', async () => {
+  const app = await flying();
+  const encounter = await intercept(app, { kind: 'trader', seed: 1 });
+  assert.ok(encounter.trade, 'the seed did not produce a lone trader');
+
+  // The stall is a button, because two price lists belong behind the sheet and
+  // nothing would say the sheet had anything new in it.
+  assert.ok(ids(app).includes('fight-trade'));
+  const opened = await app.act('fight-trade');
+  assert.equal(opened.sheet, true);
+
+  const offered = group(app, 'WHAT THEY ARE SELLING');
+  assert.ok(offered.length > 0, 'they are selling nothing');
+  const row = offered.find((item) => item.action);
+  assert.ok(row, 'nothing on the stall could be pressed');
+  const good = row.action.slice('fight-buy-'.length);
+
+  // A row opens the field, exactly as a commodity on a planet does.
+  const asked = await app.act(row.action);
+  assert.equal(asked.entry, true);
+  assert.equal(app.drawn.entry.action, 'amount');
+
+  const before = app.game;
+  const held = before.ship.cargo[good] ?? 0;
+  const bought = await app.act('amount', '1');
+  assert.equal(bought.sheet, true);
+  assert.equal(app.game.ship.cargo[good], held + 1);
+  assert.ok(app.game.credits < before.credits, 'the goods were free');
+  // Nothing is submitted: a stall in the middle of a jump is not a turn.
+  assert.equal(bought.submit ?? null, null);
+  // What was bought is in the fight's own account, which is what reaches the
+  // transcript when the encounter is over.
+  assert.ok(fight.account(app.document.fight).includes(dict.goodName(good)), 'the purchase never reached the account');
+});
+
+test('what they will buy is pressable only for what is actually aboard', async () => {
+  const app = await flying();
+  const state = app.game;
+  const encounter = engine.spawnEncounter('trader', state, new engine.Rng(1));
+  const wanted = engine.GOOD_IDS.filter((id) => (encounter.trade.buys[id] ?? 0) > 0);
+  assert.ok(wanted.length > 0);
+  state.ship.cargo[wanted[0]] = 2;
+  const record = fight.open(dict, [encounter], { system: 'x', notes: [], met: 1 });
+  app.write(state, { fight: record });
+  await app.show('status');
+
+  const rows = group(app, 'WHAT THEY ARE BUYING');
+  const first = rows.find((item) => item.label === dict.goodName(wanted[0]));
+  assert.ok(first.action, 'a good in the hold could not be sold');
+  for (const id of wanted.slice(1)) {
+    const row = rows.find((item) => item.label === dict.goodName(id));
+    if ((state.ship.cargo[id] ?? 0) === 0) assert.equal(row.action, '', 'a good nobody has could be sold');
+  }
+
+  await app.act(first.action);
+  const credits = app.game.credits;
+  const sold = await app.act('amount', '2');
+  assert.equal(app.game.ship.cargo[wanted[0]], 0);
+  assert.ok(app.game.credits > credits);
+  assert.ok(sold.status.length > 0);
+});
+
+test('the first shot shuts the stall', async () => {
+  const app = await flying();
+  await intercept(app, { kind: 'trader', seed: 1 });
+  assert.ok(ids(app).includes('fight-trade'));
+  // Firing on a hauler is a decision the hint has to name, because it does not
+  // come back: it makes them an enemy and you a pirate.
+  const fire = app.drawn.actions.find((move) => move.id === 'fight-attack');
+  assert.match(fire.hint, /pirate/i);
+
+  await app.act('fight-attack');
+  assert.ok(!ids(app).includes('fight-trade'), 'the stall was still open after the first shot');
+  assert.equal(group(app, 'WHAT THEY ARE SELLING').length, 0);
+});
+
+test('a move mid-trade closes the half-asked question', async () => {
+  const app = await flying();
+  await intercept(app, { kind: 'trader', seed: 1 });
+  const row = group(app, 'WHAT THEY ARE SELLING').find((item) => item.action);
+  await app.act(row.action);
+  assert.ok(app.drawn.entry, 'the field never opened');
+
+  await app.act('fight-openRange');
+  assert.equal(app.drawn.entry ?? null, null, 'the field survived a move');
+});
+
+test('the row names what is being demanded rather than the act of giving in', async () => {
+  const pirate = await flying();
+  await intercept(pirate, { kind: 'pirate' });
+  const gave = pirate.drawn.actions.find((move) => move.id === 'fight-surrender');
+  assert.match(gave.label, /HOLD/);
+
+  const hunter = await flying();
+  await intercept(hunter, { kind: 'bountyHunter' });
+  assert.match(hunter.drawn.actions.find((move) => move.id === 'fight-surrender').label, /STAND DOWN/);
+
+  const police = await flying();
+  await intercept(police, { kind: 'police' });
+  assert.match(police.drawn.actions.find((move) => move.id === 'fight-surrender').label, /SURRENDER/);
+});
+
+test('a tractor beam renames the way out, because it is a different move', async () => {
+  const app = await flying();
+  await intercept(app, {
+    kind: 'pirate',
+    shape: (enc) => {
+      enc.tractorLocked = true;
+    },
+  });
+  const out = app.drawn.actions.find((move) => move.id === 'fight-flee');
+  assert.match(out.label, /BREAK FREE/);
+  assert.match(out.hint, /tractor/i);
+});
+
+test('the wing is read by range, with the odds on every row and the wrecks kept', async () => {
+  const app = await flying();
+  await intercept(app, {
+    shape: (enc, state) => {
+      const rng = new engine.Rng(3);
+      const near = engine.spawnEncounter('pirate', state, rng).opponent;
+      const far = engine.spawnEncounter('pirate', state, rng).opponent;
+      near.distance = 8;
+      far.distance = 34;
+      enc.reserves = [far, near];
+      enc.downed = ['flea'];
+      enc.fleetSize = 4;
+    },
+  });
+
+  const wing = group(app, 'THE WING');
+  assert.equal(wing.length, 3);
+  // Wrecks first: they are what is no longer coming.
+  assert.equal(wing[0].action ?? '', '');
+  // Then the living, nearest first — and the index is the engine's, not the
+  // row's, or taking aim would switch to the wrong ship.
+  assert.equal(wing[1].action, 'fight-target-1');
+  assert.equal(wing[2].action, 'fight-target-0');
+  for (const row of wing.slice(1)) assert.match(row.note, /[0-9]+%/);
+});
+
+test('the panel says where the actions in a round come from', async () => {
+  const app = await flying();
+  await intercept(app);
+  const stations = app.drawn.fields.find((field) => field.label === 'STATIONS');
+  assert.ok(stations, 'nothing said who was at the guns');
+  // A commander flying alone is one gunner and nobody on the helm, which is
+  // why the round is one action long.
+  assert.match(stations.value, /gunner/);
+  assert.match(stations.value, /no helm/);
 });

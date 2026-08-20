@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.2.1.
+with the model reading the position over your shoulder. Version 2.3.0.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -94,11 +94,14 @@ get depends on who stopped you:
 | FIRE | at the odds shown, from where you are |
 | CLOSE IN / OPEN RANGE | accuracy rises as the range falls — theirs too |
 | RUN | at the odds shown, and they get a shot as you go |
+| BREAK FREE | the same button under a tractor beam, which is a different move |
 | GO PAST | a hauler minding its own business, and nothing else |
+| TRADE | their stall, when the hauler has one open |
 | SUBMIT | let the police search the hold |
 | BRIBE | where the government takes one, at the price it takes |
-| SURRENDER | the cargo, a fine, or a cell, depending who is asking |
+| HAND OVER THE HOLD / STAND DOWN / SURRENDER | named after what they are demanding |
 | BOARD THEM | when they strike their colours, and there is room in the hold |
+| HOLD FIRE | give up the rest of a round, when the crew has more than one action in it |
 | LET IT PLAY | hand the rest of it to the posture in the settings |
 
 **A round is a keypress.** It costs no turn and not one token: the engine settles it, the panel
@@ -107,8 +110,17 @@ when the shooting stops — the model narrates the fight, it does not decide it,
 as many words on every turn there is shooting.
 
 Behind the sheet: every line of the fight so far, what the other ship is carrying (which is what
-BOARD THEM would get you), and the rest of the wing if there is one — pressable, because switching
-target is free and a wing of five with one cripple in it is a decision.
+BOARD THEM would get you), and the wing if there is one — the wrecks, then everyone still flying in
+order of range, with your chance to hit each. Pressable, because switching target is free, and the
+near cripple is not always the better shot.
+
+**A hauler is not a gunfight.** A lone trader met in transit keeps a stall: three to six goods it
+will sell and a few it will buy, priced off the base rather than off any market — a shop three
+parsecs from anywhere, which no chart knows about. The engine has dealt one to every solitary trader
+since the encounter was written, and until 2.3.0 nothing in the plugin could reach it. TRADE opens
+the two price lists behind the sheet, a row opens the field, and the buying is the same field a
+planet's market uses. It costs no turn either. Firing on them shuts it — the hint on FIRE says so
+before the press, because it does not come back: they become an enemy and you become a pirate.
 
 **Starting a run.** Five cards: Pilot, Gunner, Trader, Engineer, and whoever. Each carries the
 twenty-five skill points as that trade would spend them, read out of the table itself, so a
@@ -209,14 +221,26 @@ and the answer to it is in the [Space Trader](https://github.com/alexbeatnik/Spa
 
 ## Settings
 
+Both of them are drawn twice: on the plugin's row in PLUGINS, where somebody decides about the
+plugin, and in a section of the left panel headed SPACE TRADER, where somebody plays. One
+declaration, two places — the manifest asks for it with `"panel"`, and the app draws the section
+while the plugin is running.
+
 | Setting | What it is |
 | --- | --- |
 | Language | English or Українська |
-| Met in transit | what LET IT PLAY does with a fight: run and submit to police, or fight it out |
+| LET IT PLAY fights | by running and submitting to police, or by shooting it out |
 
-*Met in transit* used to decide every fight, because there was no way to fight one by hand. It now
-decides only the ones you hand over — the LET IT PLAY button, and any fight at all on a host with no
-panel, where there is nothing to press.
+The second was called *Met in transit* until 2.3.0, and nothing on the row said what it did. It
+decided every fight once, because there was no way to fight one by hand; since 2.1.0 it decides only
+the fights you hand over — the LET IT PLAY button, and any fight at all on a host with no panel,
+where there is nothing to press. So it is named after that button now.
+
+**New game, load game and quit are on the panel, not here.** They are not settings: a setting is a
+value the app stores and hands back, and these are things that happen when they are pressed. The app
+draws a panel section from the declared settings and from nothing else, so a button cannot live in
+one. NEW GAME and QUIT are on the row while a run is going, and QUIT now leaves the panel showing the
+run it closed on — commander, day, system, ship and credits — with LOAD GAME and NEW GAME under it.
 
 The commander's name used to be a third. It is asked for by the game now, on the card that starts a
 run, which is where a question about a run belongs.
@@ -344,6 +368,35 @@ both read the same save, which is what stops the screen and the prompt describin
 
 ---
 
+## What changed in 2.3.0
+
+- **A hauler's stall can be shopped at.** The engine gives every lone trader met in transit a hand of
+  goods to sell and a short list to buy, and no version of this plugin could reach a line of it: a
+  row of buttons cannot hold a price list, so the one encounter in the game that is not a gunfight
+  was fought like one. TRADE puts both lists behind the sheet, a row opens the amount field, and what
+  changes hands goes into the fight's own account — so it reaches the transcript with everything else
+  that happened out there, and costs no turn on the way.
+- **The panel stops calling that a fight.** A trader minding its own business reads "minding their
+  own business · 23 out" rather than "round 1", the status line says they pulled alongside rather
+  than that they have you in their sights, and the model is told there is a stall open and that
+  nobody is shooting. It was being handed a hull, a range and the word "fight", and advising
+  accordingly.
+- **The moves are named after what they do.** SURRENDER is HAND OVER THE HOLD to a pirate and STAND
+  DOWN to a bounty hunter, because `demand` is in the encounter and the difference is cargo against a
+  sentence. RUN is BREAK FREE under a tractor beam, which is a different move with a different roll.
+  And FIRE on a hauler says what firing costs instead of quoting the odds.
+- **The wing reads like a formation.** The wrecks, then everyone still flying nearest first, each row
+  carrying your chance to hit that ship — the number the choice of target actually turns on, since
+  accuracy falls off with range.
+- **STATIONS.** A round is one volley per gunner plus a manoeuvre if anybody is spare to fly. The
+  panel said "ACTIONS 1 of 1" and never said why; beside it now is "1 gunner · no helm", which is a
+  reason to hire somebody.
+- **QUIT leaves a door.** It used to clear the panel, which left typing at the composer as the only
+  way back into a run still sitting in the save — the one thing a panel exists to spare you. It shows
+  the run it closed on now, named and dated, with LOAD GAME and NEW GAME under it.
+- **The settings are in the left panel.** Both of them, under a heading of their own, where the game
+  is played rather than in the list where the plugin is switched on.
+
 ## What changed in 2.2.1
 
 - **Fixed: the planet a run starts on was never furnished.** No news, no job board, no crew for hire
@@ -404,8 +457,9 @@ both read the same save, which is what stops the screen and the prompt describin
 - **A round costs no turn and not one token.** The whole account reaches the conversation once, when
   the shooting stops. The model narrates a fight it did not decide, and is told on every turn of one
   not to narrate rounds, not to say who won, and not to invent damage.
-- **LET IT PLAY** hands the rest of it to the posture in the settings, which is what *Met in transit*
-  now means. On a host with no panel that posture still decides everything, exactly as before.
+- **LET IT PLAY** hands the rest of it to the posture in the settings, which is what that setting
+  now means — and since 2.3.0 it is named after the button rather than after the jump. On a host with
+  no panel that posture still decides everything, exactly as before.
 - **A fight is in the save.** Close the app in the middle of a boarding action and it is still there,
   the same ship at the same range with everything said so far.
 - **Nothing is bought, sold or jumped while there is shooting**, and every screen answers with the

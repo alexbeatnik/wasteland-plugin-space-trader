@@ -794,6 +794,70 @@ export function affordable(engine, state, good) {
 }
 
 /**
+ * The panel with the game put away.
+ *
+ * What QUIT used to leave behind was nothing at all — `scene.clear()`, a blank
+ * strip, and typing at the composer as the only way back into a run that was
+ * still saved. That is the one thing the panel exists to spare you, and it made
+ * the button read as "destroy this" to anybody who had not tried it.
+ *
+ * So closing leaves a door instead of a wall: the run it was closed on, named
+ * and dated so it is plainly still there, and the two things that can be done
+ * from outside a game — go back into that one, or start another. There is no
+ * QUIT here, because this is what quitting arrives at.
+ *
+ * A wrecked run is still offered, and deliberately: the game-over panel is
+ * where the log and the last position are read, and a commander who died on
+ * day 300 is worth looking at before the next one launches.
+ */
+export function menuScene(engine, dict, state, { armedRestart = false } = {}) {
+  const wrecked = state ? isWrecked(state) : false;
+  const fields = [];
+  const actions = [];
+
+  if (state) {
+    fields.push({ label: t('menu.field.commander'), value: state.commanderName });
+    fields.push({ label: t('menu.field.day'), value: digits(state.day) });
+    fields.push({ label: t('menu.field.system'), value: engine.currentSystem(state).nameId });
+    fields.push({ label: t('menu.field.ship'), value: dict.shipName(state.ship.type) });
+    fields.push({ label: t('menu.field.credits'), value: money(state.credits) });
+    actions.push({
+      id: 'resume',
+      label: t('menu.resume.label'),
+      hint: wrecked
+        ? t('menu.resume.hintOver')
+        : t('menu.resume.hint', { commander: state.commanderName, day: state.day }),
+      tone: wrecked ? '' : 'good',
+    });
+  }
+
+  // Armed on the second press for the same reason the row inside a running
+  // game is: the app puts the digits on by position, `2` is easy to hit by
+  // accident, and the run under it is hours of trading. Nothing to arm when
+  // there is no save, because then there is nothing to lose.
+  actions.push({
+    id: 'restart',
+    label: t('move.restart.label'),
+    hint: !state
+      ? t('menu.restart.hint')
+      : armedRestart
+        ? t('menu.restart.hintArmed', { commander: state.commanderName })
+        : t('menu.restart.hintSaved'),
+    tone: !state ? 'good' : armedRestart ? 'bad' : '',
+  });
+
+  return {
+    title: t('menu.title'),
+    subtitle: state
+      ? t(wrecked ? 'menu.subtitle.over' : 'menu.subtitle.saved', { day: state.day })
+      : t('menu.subtitle.none'),
+    fields,
+    tags: wrecked ? [{ label: t('panel.tag.over'), tone: 'bad' }] : [],
+    actions,
+  };
+}
+
+/**
  * The panel while a commander is being made.
  *
  * Two steps and no more: the cards ask what they flew before, and one line asks

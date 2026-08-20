@@ -32,6 +32,7 @@ import {
   backgroundName,
   BACKGROUNDS,
   isWrecked,
+  menuScene,
   setupScene,
   snapshot,
 } from './panel.mjs';
@@ -118,6 +119,18 @@ let armedRestart = false;
  * reopened tomorrow should not come back with a dialog open over it.
  */
 let askingAmount = null;
+/**
+ * That question, but only where it was asked.
+ *
+ * There are two places a number is asked for now — the market on a planet and
+ * a hauler's stall in the middle of a jump — and one variable holding the
+ * question. A field left half-answered on a planet would otherwise be redrawn
+ * over a gunfight and priced off the wrong side of it.
+ */
+const asking = (where) => {
+  const trade = askingAmount?.kind === 'tradeBuy' || askingAmount?.kind === 'tradeSell';
+  return (where === 'trade') === trade ? askingAmount : null;
+};
 
 export function activate(ctx) {
   /**
@@ -235,7 +248,7 @@ export function activate(ctx) {
       scene.show(setupScene(doc.setup));
       return;
     }
-    if (!doc?.save || doc.closed === true) {
+    if (!doc?.save) {
       scene.clear();
       return;
     }
@@ -246,10 +259,23 @@ export function activate(ctx) {
       scene.clear();
       return;
     }
+    /**
+     * Put away, not thrown away.
+     *
+     * The panel used to go blank here, which left the composer as the only way
+     * back into a run that was sitting in the document untouched. A menu is the
+     * honest drawing of that state: the game is not running, the save is still
+     * there, and both of the things that can be done about it are a keypress
+     * away.
+     */
+    if (doc.closed === true) {
+      scene.show(menuScene(engine, dict, state, { armedRestart }));
+      return;
+    }
     // A fight takes the whole panel. There is no market where the shooting is,
     // and a row of moves offering one would be a row offering to leave.
     if (doc.fight && fight.current(doc.fight)) {
-      scene.show(fight.scene(engine, dict, state, doc.fight, { stance: stance() }));
+      scene.show(fight.scene(engine, dict, state, doc.fight, { stance: stance(), amount: asking('trade') }));
       return;
     }
     const art = pictures();
@@ -258,7 +284,7 @@ export function activate(ctx) {
       armedRestart,
       image: art.chart,
       pictures: art.goods,
-      amount: askingAmount,
+      amount: asking('market'),
     }));
   }
 
@@ -366,7 +392,12 @@ export function activate(ctx) {
       const encounter = fight.current(record);
       return {
         fighting: true,
-        line: t('fight.intercepted', { who: fight.who(dict, encounter), ship: fight.theirShip(dict, encounter) }),
+        // "has you in its sights" is not true of a hauler that has stopped to
+        // sell you water, and it is the first thing the player reads.
+        line: t(engine.isPeacefulTrader(encounter) ? 'fight.stopped' : 'fight.intercepted', {
+          who: fight.who(dict, encounter),
+          ship: fight.theirShip(dict, encounter),
+        }),
         account: fight.account(record),
       };
     }
@@ -1146,6 +1177,42 @@ export function activate(ctx) {
         };
       }
 
+      /**
+       * The menu, which is the panel with no game running on it.
+       *
+       * Answered before the save is read, because the whole condition these two
+       * exist under is that nothing is being played: below this line a missing
+       * game is an error, and here it is the situation.
+       */
+      if (actionId === 'resume' || (actionId === 'restart' && doc.closed === true)) {
+        askingAmount = null;
+        const saved = doc.closed === true ? await read() : null;
+        if (actionId === 'restart') {
+          // The same second press the row inside a running game asks for: a
+          // digit is easy to hit by accident and the run under it is hours old.
+          if (saved && !armedRestart) {
+            armedRestart = true;
+            await paint(doc);
+            return { status: t('ui.restartConfirm', { commander: saved.commanderName }) };
+          }
+          armedRestart = false;
+          await save({ setup: {} });
+          return { status: t('ui.newRun'), cards: true };
+        }
+        armedRestart = false;
+        // A stale press from a panel that has moved on: the game is running, and
+        // "there is no saved game" would be the wrong thing to say about it.
+        if (!saved) return { status: doc.save ? t('ui.running') : t('ui.noSavedRun') };
+        await save({ ...doc, closed: false });
+        return {
+          status: t('ui.resumedAs', { commander: saved.commanderName, day: saved.day }),
+          // Sent as words rather than settled here: coming back aboard after a
+          // week away is exactly when the position is worth reading out, and
+          // `space_trader` answers this phrase with the briefing.
+          submit: t('move.resume.submit'),
+        };
+      }
+
       const state = doc.closed === true ? null : await read();
       if (!state) return { status: t('ui.notStarted') };
 
@@ -1171,6 +1238,79 @@ export function activate(ctx) {
           await save(withGame(doc, state, { fight: record }));
           return { status: t('fight.targetSwitched', { ship: fight.theirShip(dict, encounter) }), sheet: true };
         }
+
+        /**
+         * Their stall.
+         *
+         * Free, like every other press in a fight, and for the same reason: it
+         * is the engine settling something, not a turn. TRADE opens the sheet
+         * on their two price lists; a row of one opens the field; the field is
+         * answered below, in the same place a purchase on a planet is answered.
+         */
+        if (actionId === 'fight-trade') {
+          askingAmount = null;
+          await paint(doc);
+          return { sheet: true };
+        }
+
+        if (actionId.startsWith('fight-buy-') || actionId.startsWith('fight-sell-')) {
+          const kind = actionId.startsWith('fight-buy-') ? 'tradeBuy' : 'tradeSell';
+          const good = actionId.slice((kind === 'tradeBuy' ? 'fight-buy-' : 'fight-sell-').length);
+          // The stall closes on the first shot, and the row was drawn before it.
+          if (!engine.GOOD_IDS.includes(good) || !fight.canTrade(engine, encounter)) {
+            askingAmount = null;
+            await paint(doc);
+            return { status: t('ui.moveGone') };
+          }
+          if (fight.tradeCeiling(engine, state, encounter, kind, good) <= 0) {
+            askingAmount = null;
+            await paint(doc);
+            return { status: kind === 'tradeSell' ? t('ui.nothingToSell') : t('ui.cannotAfford') };
+          }
+          askingAmount = { kind, good };
+          await paint(doc);
+          return { entry: true };
+        }
+
+        /**
+         * The field answering, which is where the trade happens.
+         *
+         * Nothing is submitted: a stall in the middle of a jump is not a turn,
+         * and what was bought goes into the fight's own account, which reaches
+         * the transcript when the encounter is over along with everything else
+         * that happened out there.
+         */
+        if (actionId === 'amount') {
+          const asked = askingAmount;
+          askingAmount = null;
+          if (!asked || !fight.canTrade(engine, encounter)) {
+            await paint(doc);
+            return { status: t('ui.moveGone') };
+          }
+          const ceiling = fight.tradeCeiling(engine, state, encounter, asked.kind, asked.good);
+          const typed = Number.parseInt(String(value ?? '').trim(), 10);
+          const amount = Math.max(0, Math.min(Number.isFinite(typed) ? typed : ceiling, ceiling));
+          if (!(amount > 0)) {
+            await paint(doc);
+            return { status: asked.kind === 'tradeSell' ? t('ui.nothingToSell') : t('ui.cannotAfford') };
+          }
+          const result = asked.kind === 'tradeSell'
+            ? engine.tradeSell(state, encounter, asked.good, amount)
+            : engine.tradeBuy(state, encounter, asked.good, amount);
+          if (!result.ok) {
+            await paint(doc);
+            return { status: dict.t(result.error) || t('refuse.marketRefused') };
+          }
+          const line = messages([result.info], dict);
+          record.log.push({ round: Math.max(1, encounter.round), text: line });
+          await save(withGame(doc, state, { fight: record }));
+          return { status: line, sheet: true };
+        }
+
+        // Anything else is a move, and a move closes a half-asked question:
+        // a field left open over a round would be answered against a stall the
+        // shooting has already shut.
+        askingAmount = null;
 
         /**
          * Hand the rest of it to the posture in the settings.
@@ -1465,6 +1605,11 @@ export function activate(ctx) {
   (async () => {
     const doc = await ctx.state.get();
     if (!doc?.setup && !doc?.save) return;
+    // A game that was put away stays put away until somebody asks for it. The
+    // menu is what QUIT leaves behind, not what a restart of the app opens on:
+    // drawn here it would claim nothing and show nowhere, and the first turn of
+    // an unrelated conversation would inherit it.
+    if (doc.closed === true) return;
     await load();
     await paint(doc);
   })();
