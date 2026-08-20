@@ -228,27 +228,33 @@ export function resolve(engine, dict, state, fight, move) {
 }
 
 /**
- * The rest of this one, under a standing posture.
+ * The rest of this one, one way or the other.
  *
- * What the whole fight used to be, kept for two callers: the AUTO button, for a
- * player who does not want to press through a gunfight with a hauler, and a
- * host with no panel at all, where there is nothing to press.
+ * What the whole fight used to be, kept for two callers: the two hand-it-over
+ * buttons, for a player who does not want to press through a gunfight with a
+ * hauler, and a host with no panel at all, where there is nothing to press.
+ *
+ * `posture` is an argument and never a setting. It used to be read out of the
+ * manifest's settings row — one standing answer, given before the jump, to a
+ * question that is different every time somebody stops you. The row is gone and
+ * the choice is where it is made: two buttons, pressed against a position that
+ * is on screen.
  *
  * Bounded because it is a loop around somebody else's state machine. An
  * encounter that will not settle is a bug in the engine or in this posture, and
  * either way an app that stops responding is the worse of the two outcomes.
  */
-export function auto(engine, dict, state, fight, stance) {
+export function auto(engine, dict, state, fight, posture) {
   const encounter = current(fight);
   if (!encounter) return [];
   const before = fight.log.length;
 
   for (let round = 0; round < MAX_ROUNDS && encounter.status === 'ongoing'; round += 1) {
-    let move = stance === 'fight' ? 'attack' : 'flee';
+    let move = posture === 'fight' ? 'attack' : 'flee';
     // The engine refuses `flee` against a hauler outright, and refusing it
     // silently would spin this loop to its bound.
     if (canIgnore(engine, encounter)) move = 'ignore';
-    else if (encounter.kind === 'police' && stance !== 'fight') move = 'submit';
+    else if (encounter.kind === 'police' && posture !== 'fight') move = 'submit';
     engine.resolveRound(state, encounter, move, dieFor(engine, encounter));
     harvest(dict, fight);
   }
@@ -292,7 +298,7 @@ export function theirShip(dict, encounter) {
  * nothing. A button that answers "you cannot do that here" is a button that
  * should not have been drawn.
  */
-export function moves(engine, state, fight, { stance = 'avoid' } = {}) {
+export function moves(engine, state, fight) {
   const encounter = current(fight);
   if (!encounter) return [];
 
@@ -382,16 +388,34 @@ export function moves(engine, state, fight, { stance = 'avoid' } = {}) {
     });
   }
 
-  // The posture comes in from the caller rather than being read here: the
-  // setting lives in the store, this file may not reach it, and a hint that
-  // says "runs" while the setting says "fights" is worse than no hint.
-  list.push({ id: 'fight-auto', label: t('fight.move.auto.label'), hint: t(`fight.move.auto.${stance === 'fight' ? 'fight' : 'avoid'}`) });
+  /**
+   * Handing the rest of it over, and to what.
+   *
+   * One button until 2.3.0, which did whatever a settings row said — a standing
+   * answer, given once before any of this happened, to a question that is
+   * different every time somebody stops you. The row said "Met in transit" and
+   * nobody could tell from it what it did. So the answer is asked where it is
+   * made: two buttons against a position that is on screen, with the odds and
+   * both hulls beside them.
+   *
+   * Against a hauler minding its own business there is only one of them,
+   * because there is nothing to run from and nothing to shoot: `auto` goes past
+   * it whichever posture it is handed.
+   */
+  if (canIgnore(engine, encounter)) {
+    // Its own label rather than RUN FOR IT: there is nothing to run from, and
+    // what it actually does is what GO PAST does to the whole leg.
+    list.push({ id: 'fight-auto', label: t('fight.move.auto.pastLabel'), hint: t('fight.move.auto.past') });
+  } else {
+    list.push({ id: 'fight-autoFight', label: t('fight.move.autoFight.label'), hint: t('fight.move.autoFight.hint'), tone: 'bad' });
+    list.push({ id: 'fight-auto', label: t('fight.move.auto.label'), hint: t(encounter.kind === 'police' ? 'fight.move.auto.police' : 'fight.move.auto.hint') });
+  }
 
   // Last, and only mid-turn, which is the only time it means anything: a crew
   // gets more than one action a round and this is how you decline the rest of
   // them. Last because the app puts the digits on by position and only the
-  // first nine get one — this is the move to lose a hotkey before LET IT PLAY
-  // does.
+  // first nine get one — this is the move to lose a hotkey before the two above
+  // do.
   if (encounter.actionsLeft > 0 && encounter.actionsLeft < encounter.actionsPerRound) {
     list.push({ id: 'fight-endTurn', label: t('fight.move.endTurn.label'), hint: t('fight.move.endTurn.hint') });
   }
@@ -511,7 +535,7 @@ function groups(engine, dict, state, fight) {
  * act on — accuracy falls off with it, and the two manoeuvre buttons are there
  * to move it.
  */
-export function scene(engine, dict, state, fight, { stance = 'avoid', amount = null } = {}) {
+export function scene(engine, dict, state, fight, { amount = null } = {}) {
   const encounter = current(fight);
   if (!encounter) return null;
   const ship = state.ship;
@@ -616,7 +640,7 @@ export function scene(engine, dict, state, fight, { stance = 'avoid', amount = n
     fields,
     tags,
     groups: groups(engine, dict, state, fight),
-    actions: moves(engine, state, fight, { stance }),
+    actions: moves(engine, state, fight),
   };
 
   // The amount field, when a row of their stall has been pressed. Checked

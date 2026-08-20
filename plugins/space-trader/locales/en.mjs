@@ -320,9 +320,13 @@ not produce this turn.
   'fight.move.next.hint': { one: '{n} more out there', other: '{n} more out there' },
   'fight.move.done.label': 'CARRY ON',
   'fight.move.done.hint': 'finish the jump',
-  'fight.move.auto.label': 'LET IT PLAY',
-  'fight.move.auto.fight': 'fight it out, as the settings say',
-  'fight.move.auto.avoid': 'run, and submit to police, as the settings say',
+  'fight.move.auto.label': 'RUN FOR IT',
+  'fight.move.auto.hint': 'the rest of this one without pressing — running, and every other ship on this leg too',
+  'fight.move.auto.police': 'the rest of this one without pressing — submit to them, and to anyone else out here',
+  'fight.move.auto.pastLabel': 'PAST THEM ALL',
+  'fight.move.auto.past': 'go on past, and past whoever else is on this leg',
+  'fight.move.autoFight.label': 'FIGHT IT OUT',
+  'fight.move.autoFight.hint': 'the rest of this one without pressing — shooting until somebody is finished',
 
   'fight.entry.buy': '{good} — {price} cr a unit, up to {max}',
   'fight.entry.sell': '{good} — they pay {price} cr a unit, up to {max}',
@@ -341,7 +345,7 @@ not produce this turn.
 
   'note.fightStarted': 'A fight has started and it is on the user\'s own panel — the moves are theirs to press. Say in one sentence who intercepted them. Do NOT narrate the fight, do not decide how it goes, and do not make a move for them.',
   'note.fightOn': 'A fight is in progress on the user\'s panel. Do NOT narrate rounds or decide the outcome — the engine does that when they press. Answer about the position and advise if asked.',
-  'refuse.notAFightMove': '"{what}" is not a move in a fight — fire, run, close in, open the range, submit, bribe, surrender, board them, or let it play',
+  'refuse.notAFightMove': '"{what}" is not a move in a fight — fire, run, close in, open the range, submit, bribe, surrender, board them, trade with them, run for it, or fight it out',
 
   /* ---------- the game put away ---------- */
 
@@ -543,7 +547,8 @@ not produce this turn.
   're.fight.ignore': '\\b(ignore|go past|leave them|fly on)\\b',
   're.fight.plunder': '\\b(board|plunder|loot|take their cargo)\\b',
   're.fight.endTurn': '\\b(hold fire|hold my fire|end turn|wait)\\b',
-  're.fight.auto': '\\b(let it play|resolve it|play it out|auto)\\b',
+  're.fight.auto': '\\b(let it play|resolve it|play it out|run for it|auto)\\b',
+  're.fight.autoFight': '\\b(fight it out|shoot it out|finish them|see it through)\\b',
   're.fight.on': '\\b(carry on|next|continue|move on|on we go)\\b',
 
   're.buy': '^(buy|purchase)$',

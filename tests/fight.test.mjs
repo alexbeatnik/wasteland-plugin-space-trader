@@ -177,9 +177,11 @@ test('the row is what can be done against this one, and nothing else', async () 
 });
 
 test('the row of a fight fits the hotkeys it is given', async () => {
-  // The app puts the digits 1-9 on the first nine by position, and a police
-  // encounter with a crew aboard is the longest row there is: fire, run, close,
-  // open, submit, bribe, surrender, let it play, hold fire.
+  // The app draws twelve at most and puts the digits 1-9 on the first nine by
+  // position. A police encounter with a crew aboard is the longest row there
+  // is: fire, run, close, open, submit, surrender, bribe, fight it out, run for
+  // it, hold fire — ten, so exactly one of them goes without a digit, and which
+  // one is decided here rather than by whatever order the list came out in.
   const app = await flying();
   const state = app.game;
   state.ship.crew = ['pax', 'mira'];
@@ -188,10 +190,15 @@ test('the row of a fight fits the hotkeys it is given', async () => {
   await intercept(app, { kind: 'police', shape: (enc) => { enc.bribeCost = 400; } });
   await app.act('fight-closeIn');
 
-  assert.ok(app.drawn.actions.length <= 9, `the row is ${app.drawn.actions.length} long`);
-  assert.ok(ids(app).includes('fight-endTurn'), 'a crew gets a second action and no way to decline it');
-  // The one that must keep a digit is the one that ends the fight in a press.
-  assert.ok(ids(app).indexOf('fight-auto') < 9);
+  const row = ids(app);
+  assert.ok(row.length <= 12, `the row is ${row.length} long and the app draws twelve`);
+  assert.equal(new Set(row).size, row.length, 'the same move is on the row twice');
+  assert.ok(row.includes('fight-endTurn'), 'a crew gets a second action and no way to decline it');
+  // The two that end the fight in one press keep their digits; HOLD FIRE is the
+  // one that may lose one, because it only declines the rest of a round.
+  assert.ok(row.indexOf('fight-auto') < 9, 'RUN FOR IT lost its hotkey');
+  assert.ok(row.indexOf('fight-autoFight') < 9, 'FIGHT IT OUT lost its hotkey');
+  assert.equal(row.at(-1), 'fight-endTurn');
 });
 
 test('a round costs no turn and sends nothing to the model', async () => {
@@ -284,14 +291,59 @@ test('the fight can be fought by typing, like everything else', async () => {
   assert.match(fired.feedback, /a fight is in progress/i);
 });
 
-test('LET IT PLAY settles the lot and finishes the jump', async () => {
-  const app = await flying({ settings: { stance: 'fight' } });
+test('FIGHT IT OUT settles the lot and finishes the jump', async () => {
+  const app = await flying();
+  await intercept(app);
+
+  const done = await app.act('fight-autoFight');
+  assert.equal(app.document.fight, undefined);
+  assert.ok(done.submit === 'how the fight went' || app.game.ship.hull <= 0);
+  assert.ok((app.document.narrate ?? '').trim().length > 0);
+});
+
+test('RUN FOR IT settles the lot the other way', async () => {
+  const app = await flying();
   await intercept(app);
 
   const done = await app.act('fight-auto');
   assert.equal(app.document.fight, undefined);
   assert.ok(done.submit === 'how the fight went' || app.game.ship.hull <= 0);
-  assert.match(app.document.narrate ?? '', /\S/);
+});
+
+/**
+ * The posture was a settings row until 2.3.0 — one standing answer, given
+ * before the jump, to a question that is different every time somebody stops
+ * you. It is two buttons now, pressed against a position that is on screen.
+ */
+test('handing a fight over is a choice made at the fight, not in the settings', async () => {
+  const app = await flying();
+  await intercept(app, { kind: 'pirate' });
+  const row = ids(app);
+  assert.ok(row.includes('fight-auto') && row.includes('fight-autoFight'));
+
+  // Both say what they do, and neither cites a setting.
+  for (const id of ['fight-auto', 'fight-autoFight']) {
+    const move = app.drawn.actions.find((entry) => entry.id === id);
+    assert.ok(move.hint.length > 0);
+    assert.ok(!/setting/i.test(move.hint), `${id} still points at a settings row`);
+  }
+
+  // Against police the running one submits, and the hint has to say so rather
+  // than promise a getaway.
+  const police = await flying();
+  await intercept(police, { kind: 'police' });
+  assert.match(police.drawn.actions.find((entry) => entry.id === 'fight-auto').hint, /submit/i);
+});
+
+test('a hauler gets one hand-over button, because there is nothing to choose', async () => {
+  const app = await flying();
+  await intercept(app, { kind: 'trader', seed: 1 });
+  const row = ids(app);
+  assert.ok(row.includes('fight-auto'));
+  // Nothing to run from and nothing to shoot: auto goes past it either way, so
+  // a second button would be two labels for one outcome.
+  assert.ok(!row.includes('fight-autoFight'));
+  assert.match(app.drawn.actions.find((entry) => entry.id === 'fight-auto').hint, /past/i);
 });
 
 test('a wing sends the next ship in, and the sheet can pick which', async () => {

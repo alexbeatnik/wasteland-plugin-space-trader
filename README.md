@@ -102,7 +102,7 @@ get depends on who stopped you:
 | HAND OVER THE HOLD / STAND DOWN / SURRENDER | named after what they are demanding |
 | BOARD THEM | when they strike their colours, and there is room in the hold |
 | HOLD FIRE | give up the rest of a round, when the crew has more than one action in it |
-| LET IT PLAY | hand the rest of it to the posture in the settings |
+| FIGHT IT OUT / RUN FOR IT | the rest of this one, and every other ship on the leg, without pressing |
 
 **A round is a keypress.** It costs no turn and not one token: the engine settles it, the panel
 redraws, and the status bar says what happened. The whole account goes into the conversation once,
@@ -221,26 +221,28 @@ and the answer to it is in the [Space Trader](https://github.com/alexbeatnik/Spa
 
 ## Settings
 
-Both of them are drawn twice: on the plugin's row in PLUGINS, where somebody decides about the
-plugin, and in a section of the left panel headed SPACE TRADER, where somebody plays. One
-declaration, two places — the manifest asks for it with `"panel"`, and the app draws the section
-while the plugin is running.
-
 | Setting | What it is |
 | --- | --- |
 | Language | English or Українська |
-| LET IT PLAY fights | by running and submitting to police, or by shooting it out |
 
-The second was called *Met in transit* until 2.3.0, and nothing on the row said what it did. It
-decided every fight once, because there was no way to fight one by hand; since 2.1.0 it decides only
-the fights you hand over — the LET IT PLAY button, and any fight at all on a host with no panel,
-where there is nothing to press. So it is named after that button now.
+**One, and that is the whole list.** It is drawn twice: on the plugin's row in PLUGINS, where
+somebody decides about the plugin, and in a section of the left panel headed SPACE TRADER, where
+somebody plays — one declaration, two places, asked for with `"panel"` in the manifest and drawn
+while the plugin is running.
+
+**There used to be a second, and it was a mistake.** *Met in transit* asked, before any of it had
+happened, what to do about a fight — one standing answer to a question that is different every time
+somebody stops you, on a row nobody remembers filling in. It is the same mistake the commander's name
+made before 2.0.0 moved it onto a card. It is gone. The choice it held is two buttons in the fight
+itself, **FIGHT IT OUT** and **RUN FOR IT**, pressed with the odds and both hulls on screen beside
+them. A host with no panel has nothing to press, so a fight nobody drives there runs and submits to
+the police, which is what the setting defaulted to.
 
 **New game, load game and quit are on the panel, not here.** They are not settings: a setting is a
 value the app stores and hands back, and these are things that happen when they are pressed. The app
 draws a panel section from the declared settings and from nothing else, so a button cannot live in
-one. NEW GAME and QUIT are on the row while a run is going, and QUIT now leaves the panel showing the
-run it closed on — commander, day, system, ship and credits — with LOAD GAME and NEW GAME under it.
+one. NEW GAME and QUIT are on the row while a run is going, and QUIT leaves the panel showing the run
+it closed on — commander, day, system, ship and credits — with LOAD GAME and NEW GAME under it.
 
 The commander's name used to be a third. It is asked for by the game now, on the card that starts a
 run, which is where a question about a run belongs.
@@ -394,8 +396,13 @@ both read the same save, which is what stops the screen and the prompt describin
 - **QUIT leaves a door.** It used to clear the panel, which left typing at the composer as the only
   way back into a run still sitting in the save — the one thing a panel exists to spare you. It shows
   the run it closed on now, named and dated, with LOAD GAME and NEW GAME under it.
-- **The settings are in the left panel.** Both of them, under a heading of their own, where the game
-  is played rather than in the list where the plugin is switched on.
+- **The fight posture stopped being a setting.** *Met in transit* was one standing answer, given
+  before the jump, to a question that is different every time somebody stops you — and the row said
+  nothing about what it did. It is gone, and LET IT PLAY is two buttons: FIGHT IT OUT and RUN FOR IT,
+  pressed against a position that is on screen. Against a hauler there is one, PAST THEM ALL, because
+  there is nothing to run from and nothing to shoot.
+- **The setting that is left is in the left panel.** The language, under a heading of its own, where
+  the game is played rather than in the list where the plugin is switched on.
 
 ## What changed in 2.2.1
 
@@ -457,9 +464,10 @@ both read the same save, which is what stops the screen and the prompt describin
 - **A round costs no turn and not one token.** The whole account reaches the conversation once, when
   the shooting stops. The model narrates a fight it did not decide, and is told on every turn of one
   not to narrate rounds, not to say who won, and not to invent damage.
-- **LET IT PLAY** hands the rest of it to the posture in the settings, which is what that setting
-  now means — and since 2.3.0 it is named after the button rather than after the jump. On a host with
-  no panel that posture still decides everything, exactly as before.
+- **FIGHT IT OUT and RUN FOR IT** hand the rest of it over — every ship left on the leg, not only the
+  one in front. Until 2.3.0 that was one button reading a settings row; the row is gone and the
+  choice is made where it is made. On a host with no panel there is nothing to press, and a fight
+  there runs and submits to the police.
 - **A fight is in the save.** Close the app in the middle of a boarding action and it is still there,
   the same ship at the same range with everything said so far.
 - **Nothing is bought, sold or jumped while there is shooting**, and every screen answers with the

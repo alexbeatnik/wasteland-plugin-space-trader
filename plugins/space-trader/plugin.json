@@ -30,21 +30,6 @@
           "label": "Українська"
         }
       ]
-    },
-    {
-      "key": "stance",
-      "type": "select",
-      "label": "LET IT PLAY fights",
-      "options": [
-        {
-          "value": "avoid",
-          "label": "by running, and submitting to police"
-        },
-        {
-          "value": "fight",
-          "label": "by shooting it out"
-        }
-      ]
     }
   ],
   "panel": "SPACE TRADER",

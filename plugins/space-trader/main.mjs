@@ -275,7 +275,7 @@ export function activate(ctx) {
     // A fight takes the whole panel. There is no market where the shooting is,
     // and a row of moves offering one would be a row offering to leave.
     if (doc.fight && fight.current(doc.fight)) {
-      scene.show(fight.scene(engine, dict, state, doc.fight, { stance: stance(), amount: asking('trade') }));
+      scene.show(fight.scene(engine, dict, state, doc.fight, { amount: asking('trade') }));
       return;
     }
     const art = pictures();
@@ -321,8 +321,18 @@ export function activate(ctx) {
 
   /* ---------- travelling, and whoever is out there ---------- */
 
-  /** What the AUTO button and a panel-less host fight under. */
-  const stance = () => (ctx.store.get('stance', 'avoid') === 'fight' ? 'fight' : 'avoid');
+  /**
+   * What a fight nobody is pressing through falls back to.
+   *
+   * Running, and submitting to the police. Not a setting: there was one, called
+   * "Met in transit", and it was a standing answer given before the jump to a
+   * question that is different every time somebody stops you — the same mistake
+   * the commander's name made before it moved onto a card. Where there is a
+   * panel the question is asked at the moment it is answered, on two buttons
+   * with the odds and both hulls beside them; this is only for the case where
+   * there is nothing to press.
+   */
+  const FALLBACK_POSTURE = 'avoid';
 
   /**
    * A jump, up to the point where somebody intercepts it.
@@ -366,10 +376,10 @@ export function activate(ctx) {
       .join(`${BREAK}${BREAK}`);
   }
 
-  /** Every ship met on one leg, settled under the standing posture. */
-  function resolveAll(state, record) {
+  /** Every ship met on one leg, settled the one way. */
+  function resolveAll(state, record, posture = FALLBACK_POSTURE) {
     while (fight.current(record) && !isWrecked(state)) {
-      fight.auto(engine, dict, state, record, stance());
+      fight.auto(engine, dict, state, record, posture);
       if (!fight.advance(dict, record)) break;
     }
   }
@@ -442,8 +452,8 @@ export function activate(ctx) {
       feedback: `${t('note.fightOn')}\n${fight.situation(engine, dict, state, record)}`,
     });
 
-    if (patterns('fight.auto').test(word)) {
-      resolveAll(state, record);
+    if (patterns('fight.auto').test(word) || patterns('fight.autoFight').test(word)) {
+      resolveAll(state, record, patterns('fight.autoFight').test(word) ? 'fight' : 'avoid');
       const ended = await endFight(doc, state, record, { narrate: false });
       return {
         ok: !isWrecked(state),
@@ -1313,14 +1323,17 @@ export function activate(ctx) {
         askingAmount = null;
 
         /**
-         * Hand the rest of it to the posture in the settings.
+         * Handing the rest of it over, and saying to what.
          *
          * Every ship left on this leg, not only the one in front — this is the
          * button for a player who does not want to press through a gunfight
          * with a hauler, and stopping it halfway would not be that.
+         *
+         * Two ids rather than one and a setting: which of them is on the row is
+         * decided by the encounter, and what each does is on the button.
          */
-        if (actionId === 'fight-auto') {
-          resolveAll(state, record);
+        if (actionId === 'fight-auto' || actionId === 'fight-autoFight') {
+          resolveAll(state, record, actionId === 'fight-autoFight' ? 'fight' : 'avoid');
           const ended = await endFight(doc, state, record);
           return { status: isWrecked(state) ? t('ui.dead') : ended.line, submit: t('move.fight.submit') };
         }
