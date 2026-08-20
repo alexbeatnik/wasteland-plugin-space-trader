@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.3.1.
+with the model reading the position over your shoulder. Version 2.3.2.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -72,12 +72,19 @@ that can be taken, and a discount too small to be worth naming does not get a ca
 
 **Trading is a number, so the panel asks for one.** Press a card — or a row on the full table — and a
 single field opens with the price and the ceiling already worked out: "Water — 55 cr each, 18
-affordable". Type an amount, or leave it empty for as many as the credits and the hold allow. The
-trade happens there; the words it stands for go into the conversation so the transcript reads as
-though you had typed them.
+affordable". The most you can take is already in it; type over it for fewer. The trade happens there,
+and the words it stands for go into the conversation so the transcript reads as though you had typed
+them.
 
-**The whole table is still one press away** — the last card in the deck, and the app's own sheet
-button. Eight cards is a hand; eighteen commodities is a spreadsheet, and the sheet is where a
+**And you can walk out.** The last two cards are the ways out: THE WHOLE TABLE, and LEAVE THE MARKET,
+which buys nothing and puts the deck down. That matters more than it sounds — the app's chooser is
+its *question* dialog, with no close button, no Escape and no dismissing it by clicking away, because
+a question with a way out is a question that never gets answered. A market is not a question, and
+until 2.3.2 the deck had no card that put it down: everything either bought something or opened a
+second dialog on top. There was no leaving a market without buying.
+
+**The whole table is still one press away** — the second-to-last card in the deck, and the app's own
+sheet button. Eight cards is a hand; eighteen commodities is a spreadsheet, and the sheet is where a
 spreadsheet belongs.
 
 **The job board.** Contracts are a list on a planet, and a list is what the sheet is for. JOBS shows
@@ -117,7 +124,7 @@ near cripple is not always the better shot.
 **A hauler is not a gunfight.** A lone trader met in transit keeps a stall: three to six goods it
 will sell and a few it will buy, priced off the base rather than off any market — a shop three
 parsecs from anywhere, which no chart knows about. The engine has dealt one to every solitary trader
-since the encounter was written, and until 2.3.1 nothing in the plugin could reach it. TRADE opens
+since the encounter was written, and until 2.3.2 nothing in the plugin could reach it. TRADE opens
 the two price lists behind the sheet, a row opens the field, and the buying is the same field a
 planet's market uses. It costs no turn either. Firing on them shuts it — the hint on FIRE says so
 before the press, because it does not come back: they become an enemy and you become a pirate.
@@ -370,7 +377,20 @@ both read the same save, which is what stops the screen and the prompt describin
 
 ---
 
-## What changed in 2.3.1
+## What changed in 2.3.2
+
+- **Fixed: a market could not be left without buying something.** The deck is dealt in the app's
+  chooser, which is its question dialog — no close button, no Escape, no dismissing it by clicking
+  away, and the row's digits go dead while it is up. That is right for "who are you flying" and wrong
+  for a shop. THE WHOLE TABLE was supposed to be the way out and was not: `{sheet: true}` opens the
+  sheet *over* the chooser without closing it, so shutting the sheet again put you back on the deck.
+  What actually closes it is a scene arriving with no cards in it, so the deck is now drawn only
+  while it is open, there is a LEAVE THE MARKET card that puts it down, and every other move on the
+  row puts it down too. Six deals instead of seven, because the eighth card had to come from
+  somewhere.
+- **The amount field stopped promising something it could not do.** It said "leave it empty for as
+  many as possible"; the app refuses to send an empty field. The most you can take was always already
+  in the box, so that is what it says now.
 
 - **A hauler's stall can be shopped at.** The engine gives every lone trader met in transit a hand of
   goods to sell and a short list to buy, and no version of this plugin could reach a line of it: a
@@ -422,7 +442,7 @@ both read the same save, which is what stops the screen and the prompt describin
 
 - **The market is a hand of cards.** MARKET deals one commodity per card with the decision worked
   out on it — what it costs here, where in range pays more, how much fuel that is, and what the
-  difference comes to a bay. The table it replaced is the last card in the deck, and the app's own
+  difference comes to a bay. The table it replaced is a card in the deck, and the app's own
   sheet button.
 - **Ranked by what can be done.** Three questions in order: could this be pressed right now with the
   credits in hand; is the number on it remembered or guessed; and what is a bay of it worth. A
@@ -465,7 +485,7 @@ both read the same save, which is what stops the screen and the prompt describin
   the shooting stops. The model narrates a fight it did not decide, and is told on every turn of one
   not to narrate rounds, not to say who won, and not to invent damage.
 - **FIGHT IT OUT and RUN FOR IT** hand the rest of it over — every ship left on the leg, not only the
-  one in front. Until 2.3.1 that was one button reading a settings row; the row is gone and the
+  one in front. Until 2.3.2 that was one button reading a settings row; the row is gone and the
   choice is made where it is made. On a host with no panel there is nothing to press, and a fight
   there runs and submits to the police.
 - **A fight is in the save.** Close the app in the middle of a boarding action and it is still there,
@@ -486,8 +506,8 @@ both read the same save, which is what stops the screen and the prompt describin
 - **The chart is pressable.** The ship at the centre, the systems where they are, a line to every one
   the tank will reach, and a jump on a press. What is out of range is drawn and not offered.
 - **Trading asks how many.** A commodity row opens a field with the price and the ceiling in its
-  label; empty means as many as the credits and the hold allow. A number over the ceiling is capped
-  rather than refused.
+  label, filled in with as many as the credits and the hold allow. A number over the ceiling is
+  capped rather than refused.
 - **The job board is reachable.** Contracts can be taken on and turned in from the sheet. The engine
   has always had them; nothing in the plugin could get at them.
 - **A run starts on cards.** Pilot, gunner, trader, engineer or whoever, each showing how it spends

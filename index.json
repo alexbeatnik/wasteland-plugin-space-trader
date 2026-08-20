@@ -5,16 +5,16 @@
     {
       "id": "space-trader",
       "name": "Space Trader",
-      "version": "2.3.1",
+      "version": "2.3.2",
       "description": "The Palm OS classic, played in the chat window, from a panel with the ship's bars, a star chart you press to jump, and a market dealt as a hand of cards — one commodity each, with what it costs here, where in range pays more and what the difference comes to a cargo bay. Trade between 140 star systems, fight off the pirates who stop you on the way a round at a time, and buy off the haulers who only wanted to sell you something. You make every move; the model reads the position each turn and advises, and never spends your credits or fires your guns itself.",
       "author": "alexbeatnik",
       "apiVersion": 11,
       "category": "games",
       "kind": "code",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIg0KICAgICBzdHJva2U9IiNmZmIwMDAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIj4NCiAgPCEtLSBBIGNvdXJzZSBwbG90dGVkIGJldHdlZW4gdHdvIHN0YXJzIHJhdGhlciB0aGFuIGEgc2hpcDogdGhlIGFwcCB0aW50cyBpY29ucw0KICAgICAgIHRocm91Z2ggaXRzIG93biBwYWxldHRlLCBzbyBvcGVuIHN0cm9rZXMgc3Vydml2ZSB0aGUgZmlsdGVyIGJldHRlciB0aGFuIGENCiAgICAgICBmaWxsZWQgZ2x5cGgsIGFuZCBhIGh1bGwgYXQgMS4xcmVtIGlzIGEgYmxvYi4gVGhlIGRhc2hlZCBsZWcgaXMgd2hhdCB0aGUNCiAgICAgICBnYW1lIGlzIGFjdHVhbGx5IGFib3V0IOKAlCB0aGUganVtcCBiZXR3ZWVuIHR3byBtYXJrZXRzLiAtLT4NCiAgPHBhdGggZD0iTTUgMTggTDE5IDYiIHN0cm9rZS1kYXNoYXJyYXk9IjIuNSAyLjUiIC8+DQogIDxwYXRoIGQ9Ik0zIDIwaDR2LTRIM3pNMTcgOGg0VjRoLTR6IiAvPg0KICA8cGF0aCBkPSJNMTMgMTdsMiAyTTE1IDE3bC0yIDIiIC8+DQo8L3N2Zz4NCg==",
-      "url": "https://github.com/alexbeatnik/wasteland-plugin-space-trader/releases/download/plugins/space-trader-2.3.1.zip",
-      "sha256": "b2834543441179e27e1e1e43e4c405c9dbdd0e79e3a69bc5bde514c65e161327",
-      "size": 158680
+      "url": "https://github.com/alexbeatnik/wasteland-plugin-space-trader/releases/download/plugins/space-trader-2.3.2.zip",
+      "sha256": "6fb40ad0a3d28c1374e33b252e019371885e6cc9c574a3fcb308da75c127316f",
+      "size": 159922
     }
   ]
 }

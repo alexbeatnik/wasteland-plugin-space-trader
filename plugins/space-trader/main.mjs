@@ -120,6 +120,22 @@ let armedRestart = false;
  */
 let askingAmount = null;
 /**
+ * Whether the market's deck is on screen.
+ *
+ * The app's chooser is its *question* dialog: no close button, no Escape, no
+ * dismissing it by clicking away, and the row's digits go dead while it is up.
+ * A question earns that; a market does not, and the deck was a trap because of
+ * it — every card either bought something or opened another dialog on top of
+ * it, so there was no way to leave a market without buying.
+ *
+ * A scene with no `cards` in it is what the app takes for "that question is
+ * over", so this is the flag that closes the thing: the deck is drawn while it
+ * is true and left out while it is false. Module scope, like `sheetView`, for
+ * the same reason — a dialog is where the player last looked and not part of
+ * the run, and a game reopened tomorrow should not come back with one over it.
+ */
+let deckOpen = false;
+/**
  * That question, but only where it was asked.
  *
  * There are two places a number is asked for now — the market on a planet and
@@ -285,6 +301,7 @@ export function activate(ctx) {
       image: art.chart,
       pictures: art.goods,
       amount: asking('market'),
+      deck: deckOpen,
     }));
   }
 
@@ -597,6 +614,18 @@ export function activate(ctx) {
    * characters and the field separator come out of it.
    */
   async function makeCommander(doc, { background, name, told = false }) {
+    /**
+     * A new run opens on the panel, not on whatever dialog the last one left.
+     *
+     * All three of these are where the player last looked rather than anything
+     * about a game, and they outlive a run because they are module scope. A
+     * commander who launches into a market deck dealt for the previous one is
+     * the visible half of that.
+     */
+    sheetView = 'market';
+    deckOpen = false;
+    askingAmount = null;
+    armedRestart = false;
     const clean = [...String(name ?? '')]
       .map((ch) => (ch === '|' || ch < ' ' ? ' ' : ch))
       .join('')
@@ -1376,6 +1405,7 @@ export function activate(ctx) {
       if (actionId === 'quit') {
         armedRestart = false;
         askingAmount = null;
+        deckOpen = false;
         await save({ ...doc, closed: true });
         return { status: t('ui.closed', { commander: state.commanderName, day: state.day }) };
       }
@@ -1396,6 +1426,7 @@ export function activate(ctx) {
         }
         armedRestart = false;
         askingAmount = null;
+        deckOpen = false;
         await save({ setup: {} });
         return { status: t('ui.newRun'), cards: true };
       }
@@ -1425,23 +1456,35 @@ export function activate(ctx) {
       if (actionId === 'market') {
         sheetView = 'market';
         askingAmount = null;
+        deckOpen = true;
         await paint(doc);
         return { cards: true };
       }
-      if (actionId === 'deal-table') {
+      /**
+       * Out of the deck, by the two cards that are not deals.
+       *
+       * Both put it down, and that is the whole of the fix: `{sheet: true}`
+       * used to open the sheet *over* the chooser without closing it, so
+       * shutting the sheet again put the player back on a deck with nothing
+       * else to press.
+       */
+      if (actionId === 'deal-table' || actionId === 'deal-close') {
         sheetView = 'market';
         askingAmount = null;
+        deckOpen = false;
         await paint(doc);
-        return { sheet: true };
+        return actionId === 'deal-table' ? { sheet: true } : { status: t('ui.marketClosed') };
       }
       if (actionId === 'ship' || actionId === 'jobs' || actionId === 'news') {
         sheetView = actionId;
         askingAmount = null;
+        deckOpen = false;
         await paint(doc);
         return { sheet: true };
       }
       if (actionId === 'chart') {
         askingAmount = null;
+        deckOpen = false;
         await paint(doc);
         return { board: true };
       }
@@ -1513,6 +1556,10 @@ export function activate(ctx) {
           return { status: dict.t(result.error) || t('refuse.marketRefused') };
         }
         const line = messages([result.info], dict);
+        // The app shuts every dialog on a move that submits, so a deck left
+        // open in the scene would be one the document says is up and the screen
+        // says is not.
+        deckOpen = false;
         await save(withGame(doc, state, { narrate: line }));
         return {
           status: line,
@@ -1534,6 +1581,7 @@ export function activate(ctx) {
        * since the marker was drawn.
        */
       if (actionId.startsWith('warp-')) {
+        deckOpen = false;
         const target = state.systems[Number(actionId.slice('warp-'.length))];
         const canReach = target && (engine.canTravelTo(state, target.id) || engine.currentSystem(state).wormholeTo === target.id);
         if (!canReach) {

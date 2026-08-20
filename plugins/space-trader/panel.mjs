@@ -208,8 +208,12 @@ export function board(engine, dict, state, image = '') {
  *
  * Eight at most, because the host draws eight, and that turns out to be the
  * right shape anyway — a hand of choices rather than a spreadsheet.
+ *
+ * Six of them are deals. The other two are the ways out: the whole table, and
+ * leaving. That was seven and one until 2.3.2, when the eighth card had to be
+ * found somewhere — see `marketCards`.
  */
-const DEAL_CARDS = 7;
+const DEAL_CARDS = 6;
 /**
  * How far under the usual price is worth a card of its own.
  *
@@ -367,26 +371,34 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
 }
 
 /**
- * The deck, with the way out of it on the end.
+ * The deck, with two ways out of it on the end.
  *
- * Kept in the scene rather than dealt on demand, which is what makes it a
- * reference and not a question: the app hides its own chooser button when a
- * scene has no cards, and throws a chooser open unasked only when the scene
- * offers no moves at all. This one always offers moves, so it opens when the
- * player asks for it and never over the top of anything.
+ * The chooser is the app's *question* dialog and it is built like one: no close
+ * button, no Escape, no dismissing it by clicking away, and the row's digits go
+ * dead while it is up. That is right for "who are you flying", which is what it
+ * was made for. It is wrong for a market, which is a shop — and the first
+ * version of this deck was a trap because of it. The way out was supposed to be
+ * THE WHOLE TABLE, on the argument that a deck used as a reference has to carry
+ * its own answer; it was not one. `{sheet: true}` opens the sheet *over* the
+ * chooser without closing it, so shutting the sheet again put the player back
+ * on the deck with nothing else to press. There was no way to leave a market
+ * without buying something.
  *
- * The last card is the whole table. The chooser has no close button by design —
- * a question with a way out is a question that never gets answered — so a deck
- * used as a reference has to carry its own answer, and "show me everything"
- * is the honest one.
+ * What actually closes the dialog is a scene with no `cards` in it — the app
+ * hides it the moment one arrives. So the deck is drawn only while it is open,
+ * `deckOpen` in `main.mjs` says whether it is, and both of the last two cards
+ * put it down: one on the way to the table, one on the way out.
  */
 export function marketCards(engine, dict, state, options = {}) {
   const items = deals(engine, dict, state, options);
-  // Said once on the deck rather than on every card in it. Seven cards each
-  // ending "nowhere in range has been visited yet" is one fact repeated seven
+  // Said once on the deck rather than on every card in it. Six cards each
+  // ending "nowhere in range has been visited yet" is one fact repeated six
   // times, and it crowded out the two numbers that actually differed.
   const blind = items.length > 0 && knownMarkets(engine, state).length === 0;
   items.push({ label: t('deal.table.label'), note: t('deal.table.note'), action: 'deal-table' });
+  // Last, so it is where a hand of cards ends rather than where it starts, and
+  // never cut: the host keeps the first eight, and this deck is eight.
+  items.push({ label: t('deal.leave.label'), note: t('deal.leave.note'), action: 'deal-close' });
   return {
     label: t(blind ? 'deal.label.blind' : 'deal.label', { system: engine.currentSystem(state).nameId }),
     items,
@@ -659,7 +671,7 @@ export function moves(engine, state, { armedRestart = false } = {}) {
  * screen would be the one the player trusts.
  */
 export function snapshot(engine, dict, state, options = {}) {
-  const { sheetView = 'market', armedRestart = false, image = '', pictures = {}, amount = null } = options;
+  const { sheetView = 'market', armedRestart = false, image = '', pictures = {}, amount = null, deck = false } = options;
   const sys = engine.currentSystem(state);
   const ship = state.ship;
   const wrecked = isWrecked(state);
@@ -731,13 +743,14 @@ export function snapshot(engine, dict, state, options = {}) {
     actions: moves(engine, state, { armedRestart }),
     board: board(engine, dict, state, image),
     /**
-     * The deck, whenever there is a market to deal from.
+     * The deck, while it is open and there is a market to deal from.
      *
      * A wrecked ship is not shopping, and a planet that trades in nothing has
-     * no hand to deal — in both cases the app hides its chooser button rather
-     * than offering an empty window.
+     * no hand to deal. `deck` is the third condition and the one that closes
+     * it: the chooser has no close button of its own, and a scene arriving
+     * without cards is what the app takes for "that question is over".
      */
-    cards: wrecked ? null : marketCards(engine, dict, state, { pictures }),
+    cards: wrecked || !deck ? null : marketCards(engine, dict, state, { pictures }),
   };
 
   /**

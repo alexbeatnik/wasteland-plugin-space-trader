@@ -636,9 +636,10 @@ test('the market is dealt as a hand, and every card is a decision', async () => 
   assert.match(deck.label, /^What is worth doing at |nothing in range has been visited yet$/);
   assert.ok(deck.items.length > 1 && deck.items.length <= 8, `${deck.items.length} cards`);
 
-  const table = deck.items.at(-1);
-  assert.equal(table.action, 'deal-table');
-  for (const card of deck.items.slice(0, -1)) {
+  // The last two are the ways out of it, in that order.
+  assert.equal(deck.items.at(-2).action, 'deal-table');
+  assert.equal(deck.items.at(-1).action, 'deal-close');
+  for (const card of deck.items.slice(0, -2)) {
     // Commodity ids are the game's own, and some of them are camelCase.
     assert.match(card.action, /^deal-(buy|sell)-[A-Za-z]+$/);
     // Not a price: a decision. Every card names what it would cost or fetch and
@@ -648,14 +649,54 @@ test('the market is dealt as a hand, and every card is a decision', async () => 
   }
 });
 
-test('the deck is always in the scene, so the app can offer its own way in', async () => {
-  // The host hides its chooser button when a scene has no cards, and throws a
-  // chooser open unasked only when the scene offers no moves at all. This one
-  // always offers moves, so it is a reference the player opens — not a question
-  // that traps them.
+/**
+ * The market has to be leavable without buying anything.
+ *
+ * It was not, and this test is the bug. The app's chooser is its *question*
+ * dialog — no close button, no Escape, no dismissing it by clicking away, and
+ * the row's digits go dead while it is up. The deck used to sit in the scene
+ * permanently on the argument that a scene which always offers moves is a
+ * reference rather than a question. It is not the scene's moves that decide
+ * that: it is whether anything on the dialog puts it down. Nothing did. Every
+ * card either bought something or opened a second dialog on top of the first,
+ * so shutting that one put the player back on the deck.
+ *
+ * What closes the chooser is a scene arriving with no cards in it, so the deck
+ * is drawn only while it is open.
+ */
+test('the market can be left without buying anything', async () => {
   const app = await flying();
-  assert.ok(app.drawn.cards, 'the deck is only there when asked for');
-  assert.ok(app.drawn.actions.length > 0, 'a scene with cards and no moves opens itself');
+  assert.equal(app.drawn.cards ?? null, null, 'the deck is up before anybody asked for it');
+
+  const opened = await app.act('market');
+  assert.equal(opened.cards, true);
+  assert.ok(app.drawn.cards, 'MARKET dealt nothing');
+
+  const leave = app.drawn.cards.items.at(-1);
+  assert.equal(leave.action, 'deal-close');
+  const left = await app.act('deal-close');
+  // No purchase, no turn, no words sent — and nothing left for the app to draw,
+  // which is what shuts the dialog.
+  assert.equal(left.submit ?? null, null);
+  assert.equal(app.drawn.cards ?? null, null, 'the deck survived being left');
+  assert.ok(app.drawn.actions.some((move) => move.id === 'market'), 'no way back in');
+
+  // And the other card that is not a deal puts it down too: the sheet used to
+  // open over the chooser without closing it.
+  await app.act('market');
+  const table = await app.act('deal-table');
+  assert.equal(table.sheet, true);
+  assert.equal(app.drawn.cards ?? null, null, 'the table opened over a deck still up');
+});
+
+test('anything else on the row puts the deck down as well', async () => {
+  const app = await flying();
+  for (const move of ['chart', 'ship', 'jobs', 'news']) {
+    await app.act('market');
+    assert.ok(app.drawn.cards, 'MARKET dealt nothing');
+    await app.act(move);
+    assert.equal(app.drawn.cards ?? null, null, `${move} left the deck up behind it`);
+  }
 });
 
 test('a card opens the field, and the field does the trade', async () => {
@@ -769,6 +810,7 @@ test('a picture dropped in the data directory lands on the card that wants it', 
   await app.act('name', 'Jameson');
 
   assert.equal(app.drawn.board.image, 'chart.png');
+  await app.act('market');
   const water = app.drawn.cards.items.find((card) => card.action === 'deal-buy-water');
   if (water) assert.equal(water.image, 'good-water.jpg');
   for (const card of app.drawn.cards.items) {
@@ -843,7 +885,7 @@ test('a card is one line, and says nothing that belongs on the deck', async () =
   // on every one of them is the deck's fact, not the card's.
   const app = await flying();
   await app.act('market');
-  const deck = app.drawn.cards.items.slice(0, -1);
+  const deck = app.drawn.cards.items.slice(0, -2);
   assert.ok(deck.length > 0);
 
   for (const card of deck) {

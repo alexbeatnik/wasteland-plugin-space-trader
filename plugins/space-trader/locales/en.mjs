@@ -147,7 +147,7 @@ not produce this turn.
 
   'panel.entry.amount.buy': '{good} — {price} cr each, {max} affordable',
   'panel.entry.amount.sell': '{good} — {price} cr each, {max} aboard',
-  'panel.entry.amount.hint': 'a number, or leave it empty for as many as possible',
+  'panel.entry.amount.hint': 'as many as possible is already in the field — type over it for fewer',
   'panel.entry.amount.submit': 'DO IT',
 
   /* ---------- the deck ---------- */
@@ -167,6 +167,8 @@ not produce this turn.
   'deal.carry.flat': 'much the same everywhere',
   'deal.table.label': 'THE WHOLE TABLE',
   'deal.table.note': 'Every commodity this planet trades, both ways, with what is in the hold beside it.',
+  'deal.leave.label': 'LEAVE THE MARKET',
+  'deal.leave.note': 'Put the deck down and go back to the panel. Nothing is bought, and the prices keep until you jump.',
 
   /* ---------- the chart ---------- */
 
@@ -415,6 +417,7 @@ not produce this turn.
   'ui.moveGone': 'That move is no longer on the row.',
   'ui.rowGone': 'That is no longer in the hold.',
   'ui.noRouteThere': 'The tank will not reach it any more.',
+  'ui.marketClosed': 'The market is put away.',
   'ui.notForSale': 'This planet is not selling that.',
   'ui.notBought': 'Nobody here is buying that.',
   'ui.nothingToSell': 'There is none of that aboard.',
