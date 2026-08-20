@@ -592,7 +592,9 @@ test('the market is dealt as a hand, and every card is a decision', async () => 
 
   const deck = app.drawn.cards;
   assert.ok(deck, 'no deck was dealt');
-  assert.match(deck.label, /^What is worth doing at /);
+  // Two forms: the ordinary one, and the one that carries the fact every
+  // blind card used to repeat.
+  assert.match(deck.label, /^What is worth doing at |nothing in range has been visited yet$/);
   assert.ok(deck.items.length > 1 && deck.items.length <= 8, `${deck.items.length} cards`);
 
   const table = deck.items.at(-1);
@@ -602,7 +604,7 @@ test('the market is dealt as a hand, and every card is a decision', async () => 
     assert.match(card.action, /^deal-(buy|sell)-[A-Za-z]+$/);
     // Not a price: a decision. Every card names what it would cost or fetch and
     // says what pressing it does.
-    assert.match(card.note, /Press to (buy|sell)|affordable/);
+    assert.match(card.note, /^(BUY|SELL) · /);
     assert.ok(card.note.length <= 200, `a card's paragraph is ${card.note.length} long`);
   }
 });
@@ -650,8 +652,8 @@ test('what is in the hold is dealt as a sale, and outranks a thinner purchase', 
   const first = app.drawn.cards.items[0];
   assert.equal(first.action, `deal-sell-${good}`, 'the best deal on the table is not first');
   assert.equal(first.tone, 'good');
-  assert.match(first.note, /5 aboard/);
-  assert.match(first.note, /a unit more than you gave/);
+  assert.match(first.note, /^SELL · 5 aboard/);
+  assert.match(first.note, /a unit above what you gave/);
 });
 
 test('a guess never outranks a deal that can be taken, and never claims to be one', async () => {
@@ -666,13 +668,13 @@ test('a guess never outranks a deal that can be taken, and never claims to be on
   const app = await flying();
   await app.act('market');
   const deck = app.drawn.cards.items.slice(0, -1);
-  const guesses = deck.filter((card) => card.note.includes('No destination known yet'));
+  const guesses = deck.filter((card) => card.note.includes('under the usual'));
 
   for (const guess of guesses) {
     assert.notEqual(guess.tone, 'good', 'a guess is drawn as a certainty');
-    assert.match(guess.note, /the usual price|worth more|same price/);
+    assert.match(guess.note, /dearer at (high|low) tech|much the same everywhere/);
     for (const card of deck.slice(deck.indexOf(guess) + 1)) {
-      const takeable = card.note.includes('fuel away') || card.note.includes('Press to sell');
+      const takeable = card.note.includes(' fuel · ') || card.note.startsWith('SELL · ');
       assert.ok(!takeable, `a deal that could be taken sorted below a guess: ${card.note}`);
     }
   }
@@ -792,4 +794,51 @@ test('a move made while the cards are still up points at the cards', async () =>
   assert.equal(answered.ok, true);
   assert.match(answered.summary, /background/i);
   assert.equal(app.game, null, 'a commander was made by a move');
+});
+
+test('a card is one line, and says nothing that belongs on the deck', async () => {
+  // The first draft: seven cards, each ending "no destination known yet. Press
+  // to buy", eight wrapped lines apiece, with two numbers moving somewhere in
+  // the middle of identical prose. Cards sharing a shape is what makes them
+  // comparable — a column of prices reads as a table — but a sentence repeated
+  // on every one of them is the deck's fact, not the card's.
+  const app = await flying();
+  await app.act('market');
+  const deck = app.drawn.cards.items.slice(0, -1);
+  assert.ok(deck.length > 0);
+
+  for (const card of deck) {
+    assert.ok(card.note.length <= 110, `a card runs to ${card.note.length} characters: ${card.note}`);
+    assert.doesNotMatch(card.note, /Press to/, 'a card is a button; it need not say so');
+    assert.doesNotMatch(card.note, /has been visited/, 'a card carries what belongs on the deck');
+    // The verb first, then the numbers: what differs is at the front.
+    assert.match(card.note, /^(BUY|SELL) · /);
+  }
+
+  // And the fact itself is stated exactly once, where it belongs.
+  const everywhere = [app.drawn.cards.label, ...deck.map((card) => card.note)].join(' | ');
+  const said = everywhere.split('has been visited').length - 1;
+  assert.ok(said <= 1, `"has been visited" appears ${said} times in one dialog`);
+});
+
+test('the planet a run starts on is furnished like any other', async () => {
+  // `newGame` builds the galaxy and puts the ship down; everything that
+  // furnishes a planet — the news, the job board, the crew for hire — is done
+  // by the engine when a jump *ends*, and nothing ever jumps to the first
+  // system. Day one had a planet living through a cold snap with nothing being
+  // reported about it, and an empty contract board.
+  const app = await flying();
+  const state = app.game;
+  const here = state.systems[state.currentSystem];
+
+  assert.ok(here.news.length > 0, 'nothing is being reported on day one');
+  assert.ok((here.questBoard ?? []).length > 0, 'the job board is empty on day one');
+  assert.equal(state.day, 1, 'arriving cost a day');
+  assert.equal(state.credits, 1000, 'arriving cost credits');
+
+  await app.act('news');
+  assert.ok(rowIn(app, 'REPORTED HERE').length > 0);
+  await app.act('jobs');
+  const offers = rowIn(app, 'THE JOB BOARD');
+  assert.ok(offers.length > 0, 'no contracts to take on the first planet');
 });

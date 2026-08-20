@@ -563,6 +563,23 @@ export function activate(ctx) {
       .slice(0, 24) || t('setup.name.nameless');
     const chosen = backgroundFor(background) ?? BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)];
     const state = engine.newGame({ commanderName: clean, skills: { ...chosen.skills } });
+    /**
+     * Arrive at the planet the run starts on.
+     *
+     * `newGame` builds the galaxy and puts the ship down, and leaves that one
+     * system undressed: no news, no job board, no crew for hire. Everything
+     * that furnishes a planet is done by `settleArrival`, which runs when a
+     * jump ends — and the first system is the one place nothing ever jumps to.
+     * So day one had a planet living through a cold snap with nothing whatever
+     * being reported about it, and an empty contract board, until the commander
+     * flew somewhere else and came back.
+     *
+     * The engine's own routine rather than a list of generators copied out of
+     * it: if arriving ever comes to mean a fourth thing, the first planet gets
+     * that too. It touches nothing else here — the day, the credits and the
+     * tank are what `newGame` left them.
+     */
+    engine.settleArrival(state, new engine.Rng(state.seed));
     // `opening` means "nobody has been introduced to this run yet", so it is not
     // set when the reply carrying it out is the very one being written.
     const next = withGame({}, state, { background: chosen.key, opening: !told });

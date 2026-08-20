@@ -210,6 +210,15 @@ export function board(engine, dict, state, image = '') {
  * right shape anyway — a hand of choices rather than a spreadsheet.
  */
 const DEAL_CARDS = 7;
+/**
+ * How far under the usual price is worth a card of its own.
+ *
+ * Only ever asked of a card that has no destination to name, where the whole
+ * argument is the discount. Thirteen credits off a two hundred credit good is
+ * not an argument, and seven cards making it in the same words was the deck's
+ * first draft: a wall of identical prose with two numbers moving in it.
+ */
+const WORTH_SAYING = 0.05;
 
 /** Systems the tank reaches whose prices this run has actually seen. */
 function knownMarkets(engine, state) {
@@ -266,11 +275,15 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
         sure: 1,
         score: margin,
         label: dict.goodName(id),
-        note: margin > 0
-          ? t('deal.sell.profit', { held, price: digits(bid), margin: money(margin) })
-          : margin < 0
-            ? t('deal.sell.loss', { held, price: digits(bid), margin: money(-margin) })
-            : t('deal.sell.flat', { held, price: digits(bid) }),
+        note: t('deal.sell', {
+          held,
+          price: digits(bid),
+          margin: margin > 0
+            ? t('deal.sell.up', { margin: money(margin) })
+            : margin < 0
+              ? t('deal.sell.down', { margin: money(-margin) })
+              : t('deal.sell.flat'),
+        }),
         tone: margin > 0 ? 'good' : margin < 0 ? 'bad' : '',
       });
       // One card per commodity, and the sale takes it: "sell your medicine" and
@@ -294,16 +307,14 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
         sure: 1,
         score: margin,
         label: dict.goodName(id),
-        note: most <= 0
-          ? t('deal.buy.broke', { price: digits(price), system: best.sys.nameId, sells: digits(best.price), margin: money(margin) })
-          : t('deal.buy', {
-            price: digits(price),
-            most,
-            system: best.sys.nameId,
-            sells: digits(best.price),
-            fuel: best.fuel,
-            margin: money(margin),
-          }),
+        note: t('deal.buy', {
+          price: digits(price),
+          room: most > 0 ? t('deal.room', { most }) : t('deal.broke'),
+          system: best.sys.nameId,
+          sells: digits(best.price),
+          fuel: best.fuel,
+          margin: money(margin),
+        }),
         tone: margin <= 0 ? 'warn' : most > 0 ? 'good' : '',
       });
       continue;
@@ -326,7 +337,7 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
      */
     const usual = engine.standardPrice(engine.TRADE_GOODS[id], sys);
     const discount = usual - price;
-    if (!usual || discount < 0) continue;
+    if (!usual || discount < price * WORTH_SAYING) continue;
     const slope = engine.TRADE_GOODS[id].pricePerTech ?? 0;
     found.push({
       kind: 'buy',
@@ -335,9 +346,10 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
       sure: 0,
       score: discount,
       label: dict.goodName(id),
-      note: t(most > 0 ? 'deal.buy.blind' : 'deal.buy.blind.broke', {
+      note: t('deal.buy.blind', {
         price: digits(price),
-        compare: discount > 0 ? t('deal.compare.cheap', { margin: money(discount) }) : t('deal.compare.usual'),
+        room: most > 0 ? t('deal.room', { most }) : t('deal.broke'),
+        margin: money(discount),
         carry: slope > 0 ? t('deal.carry.up') : slope < 0 ? t('deal.carry.down') : t('deal.carry.flat'),
       }),
       tone: most > 0 && discount > 0 ? '' : 'warn',
@@ -370,8 +382,15 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
  */
 export function marketCards(engine, dict, state, options = {}) {
   const items = deals(engine, dict, state, options);
+  // Said once on the deck rather than on every card in it. Seven cards each
+  // ending "nowhere in range has been visited yet" is one fact repeated seven
+  // times, and it crowded out the two numbers that actually differed.
+  const blind = items.length > 0 && knownMarkets(engine, state).length === 0;
   items.push({ label: t('deal.table.label'), note: t('deal.table.note'), action: 'deal-table' });
-  return { label: t('deal.label', { system: engine.currentSystem(state).nameId }), items };
+  return {
+    label: t(blind ? 'deal.label.blind' : 'deal.label', { system: engine.currentSystem(state).nameId }),
+    items,
+  };
 }
 
 /* ---------- the lists behind the sheet ---------- */

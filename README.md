@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.2.0.
+with the model reading the position over your shoulder. Version 2.2.1.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -46,10 +46,11 @@ planned, but it is a label rather than a button.
 **The market is dealt, not listed.** MARKET turns the panel into a hand of cards, one commodity
 each, with the decision already worked out on it:
 
-> **Furs** — 4 aboard, and they pay 360 here — 302 cr a unit more than you gave for it. Press to sell.
+> **Furs**   SELL · 4 aboard · they pay 360 · 302 cr a unit above what you gave
 >
-> **Water** — 46 cr here, and 21 is what the credits and the hold allow. Nyle was paying 89, 10 fuel
-> away — 43 cr a unit. Press to buy.
+> **Water**   BUY · 46 · room for 21 · Nyle paid 89, 10 fuel · 43 cr a unit
+>
+> **Machines**   BUY · 817 · room for 1 · 80 cr under the usual · dearer at low tech
 
 The table said what water costs. It never said whether to buy any, which is the only question a
 trader is actually asking, and answering it takes two things no column ever held: what the hold
@@ -57,10 +58,17 @@ already cost, and what the systems in range pay. Buying and selling are ranked a
 one number — what a bay of it is worth — after two that come first: whether it can be pressed at all
 with the credits in hand, and whether the price on it is remembered or guessed.
 
+**One line, and the same shape on every card.** Sharing a shape is what makes a hand comparable — a
+column of prices reads as a table. What must not be shared is a *sentence*: the first draft ended
+every card with "no destination known yet, press to buy", and eight wrapped lines of identical prose
+with two numbers moving somewhere in the middle is not a choice, it is a list with extra steps. A
+fact true of every card belongs on the deck, once, and that is where it is.
+
 **Nothing on a card is a secret.** Every price quoted is from a system this run has already visited.
-Early on that is nowhere, and the card says so and falls back on what is honestly known here — what
-the commodity usually goes for on a planet like this one, and which way up the tech ladder it wants
-carrying. A guess is never drawn as a certainty and never outranks a deal that can be taken.
+Early on that is nowhere — the deck says so in its own title — and the cards fall back on what is
+honestly known here: what the commodity usually goes for on a planet like this one, and which way up
+the tech ladder it wants carrying. A guess is never drawn as a certainty and never outranks a deal
+that can be taken, and a discount too small to be worth naming does not get a card at all.
 
 **Trading is a number, so the panel asks for one.** Press a card — or a row on the full table — and a
 single field opens with the price and the ceiling already worked out: "Water — 55 cr each, 18
@@ -335,6 +343,20 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 both read the same save, which is what stops the screen and the prompt describing two different runs.
 
 ---
+
+## What changed in 2.2.1
+
+- **Fixed: the planet a run starts on was never furnished.** No news, no job board, no crew for hire
+  — a world living through a cold snap with nothing whatever being reported about it, and an empty
+  contract board, until the commander flew somewhere else and came back. Everything that dresses a
+  planet is done by the engine when a jump *ends*, and nothing ever jumps to the first system. It
+  arrives there now, through the engine's own routine rather than a copied list of generators.
+- **Fixed: the cards were a wall of prose.** Seven of them, each eight wrapped lines, each ending in
+  the same two sentences, with the two numbers that differed buried in the middle. One line each
+  now, the verb first, the facts separated — and the sentence they all shared moved to the deck's
+  title where it is said once.
+- **A discount too small to be worth naming does not get a card.** Thirteen credits off a two hundred
+  credit good is not an argument; the deck is shorter and every card in it is one.
 
 ## What changed in 2.2.0
 

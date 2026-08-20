@@ -1,7 +1,7 @@
 {
   "id": "space-trader",
   "name": "Space Trader",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "apiVersion": 11,
   "category": "games",
   "description": "The Palm OS classic, played in the chat window, from a panel with the ship's bars, a star chart you press to jump, and a market dealt as a hand of cards — one commodity each, with what it costs here, where in range pays more and what the difference comes to a cargo bay. Trade between 140 star systems, and fight off the pirates who stop you on the way, a round at a time. You make every move; the model reads the position each turn and advises, and never spends your credits or fires your guns itself.",
