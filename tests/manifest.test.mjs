@@ -40,10 +40,11 @@ test('the version is one the app can compare', () => {
 });
 
 test('the api version is the one the panel needs', () => {
-  // 11 is the build that added the field a game can ask into and the colours on
-  // its bars, both of which this plugin uses. Declaring less would let it
-  // install on a build where the trade field does nothing.
-  assert.equal(manifest.apiVersion, 11);
+  // 12 is the build that added `button` settings — a control in the left panel
+  // that does something rather than storing a value, which is how NEW GAME,
+  // SAVE and LOAD are reachable when no game is drawn. Declaring less would let
+  // it install on a build where those three do nothing at all.
+  assert.equal(manifest.apiVersion, 12);
 });
 
 test('it declares a category the app has a heading for', () => {
@@ -67,6 +68,7 @@ test('every action the plugin registers is declared, and nothing else is', async
     prompt: () => {},
     context: () => {},
     onSettingsChanged: () => {},
+    onButton: () => {},
     store: { get: (key, fallback = '') => fallback },
     state: { get: () => ({}), set: () => {} },
     dataDir: () => '.',
@@ -114,10 +116,48 @@ test('a select setting offers options, and no duplicate keys', () => {
   for (const setting of manifest.settings ?? []) {
     assert.ok(!keys.has(setting.key), `two settings called "${setting.key}"`);
     keys.add(setting.key);
-    assert.ok(['folder', 'text', 'toggle', 'select'].includes(setting.type), `"${setting.type}" is not a setting the app draws`);
+    assert.ok(['folder', 'text', 'toggle', 'select', 'button'].includes(setting.type), `"${setting.type}" is not a setting the app draws`);
     // The app refuses to store a value that was never offered, so a `select`
     // with no options is a control that can hold nothing.
     if (setting.type === 'select') assert.ok(setting.options?.length > 0, `"${setting.key}" is a select with no options`);
+    // A button holds nothing, so options and a placeholder would be furniture
+    // for a control that has no value to put in them.
+    if (setting.type === 'button') {
+      assert.equal(setting.options ?? undefined, undefined, `"${setting.key}" is a button with options`);
+      assert.ok(setting.label, `"${setting.key}" is a button with no label`);
+    }
+  }
+});
+
+test('every button the manifest draws is one the plugin answers', async () => {
+  // The app refuses a press on a declared button with no handler, which is the
+  // right failure — but it happens on somebody else's machine, in a panel
+  // section, with a sentence naming this plugin. Cheaper to find it here.
+  const declared = (manifest.settings ?? []).filter((setting) => setting.type === 'button').map((setting) => setting.key);
+  assert.ok(declared.length > 0, 'no buttons — the panel section is settings only');
+
+  let press = null;
+  const { activate } = await import('../plugins/space-trader/main.mjs');
+  activate({
+    id: 'space-trader',
+    service: () => { throw new Error('none here'); },
+    action: () => {},
+    prompt: () => {},
+    context: () => {},
+    onSettingsChanged: () => {},
+    onButton: (fn) => { press = fn; },
+    store: { get: (key, fallback = '') => fallback },
+    state: { get: () => ({}), set: () => {} },
+    dataDir: () => '.',
+    log: () => {},
+  });
+  assert.equal(typeof press, 'function', 'the manifest draws buttons and nothing answers them');
+
+  // And every one of them answers in words rather than falling through to a
+  // shrug: an unknown key is the only thing that should get one.
+  for (const key of declared) {
+    const answer = await press(key);
+    assert.ok(answer && typeof answer === 'object', `"${key}" answered nothing`);
   }
 });
 

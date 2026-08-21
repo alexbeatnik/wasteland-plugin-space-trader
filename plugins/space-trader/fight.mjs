@@ -391,7 +391,7 @@ export function moves(engine, state, fight) {
   /**
    * Handing the rest of it over, and to what.
    *
-   * One button until 2.3.2, which did whatever a settings row said — a standing
+   * One button until 2.4.0, which did whatever a settings row said — a standing
    * answer, given once before any of this happened, to a question that is
    * different every time somebody stops you. The row said "Met in transit" and
    * nobody could tell from it what it did. So the answer is asked where it is

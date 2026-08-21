@@ -349,6 +349,29 @@ not produce this turn.
   'note.fightOn': 'A fight is in progress on the user\'s panel. Do NOT narrate rounds or decide the outcome — the engine does that when they press. Answer about the position and advise if asked.',
   'refuse.notAFightMove': '"{what}" is not a move in a fight — fire, run, close in, open the range, submit, bribe, surrender, board them, trade with them, run for it, or fight it out',
 
+  /* ---------- the slots ---------- */
+
+  'saves.group.save': 'SAVE INTO',
+  'saves.group.load': 'LOAD FROM',
+  'saves.group.empty': 'no slots',
+  'saves.group.clear': 'THROW A SLOT AWAY',
+  'saves.group.clear.empty': 'every slot is empty',
+  'saves.row.label': 'SLOT {n}',
+  'saves.row.empty': 'empty',
+  'saves.row.unreadable': 'written by a newer build, or damaged',
+  'saves.row.held': '{commander} · day {day} · {system} · {ship} · {credits}',
+  'saves.row.write': 'press to write this slot',
+  'saves.row.overwrite': 'press to write over it',
+  'saves.row.load': 'press to fly this one',
+  'saves.row.delete': 'press to clear it',
+  'saves.row.deleteHeld': '{commander}, day {day} — press to clear it',
+  'saves.saved': 'Slot {n} written — {commander}, day {day}.',
+  'saves.loaded': 'Slot {n} loaded — {commander}, day {day}.',
+  'saves.deleted': 'Slot {n} cleared.',
+  'saves.failed': 'That slot could not be written.',
+  'saves.unreadable': 'Slot {n} could not be read.',
+  'saves.notRunning': 'There is no run to save. Load one, or start one.',
+
   /* ---------- the game put away ---------- */
 
   'menu.title': 'SPACE TRADER',
@@ -396,6 +419,10 @@ not produce this turn.
   'setup.chosen': '{background}. Now the name.',
   'setup.needBackground': 'Choose a background first.',
   'setup.needName': 'The commander needs a name.',
+  'setup.keep.label': 'KEEP FLYING',
+  'setup.keep.note': 'Never mind — go back to the run in progress. Nothing has been thrown away.',
+  'setup.kept': 'Back to {commander}, day {day}.',
+  'setup.nothingToKeep': 'There is no run to go back to.',
   'setup.backgroundTaken': 'That question has been answered.',
   'setup.intro.words': 'so where are we starting?',
 

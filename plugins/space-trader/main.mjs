@@ -36,7 +36,8 @@ import {
   setupScene,
   snapshot,
 } from './panel.mjs';
-import { credits as money, patterns, setLanguage, t } from './words.mjs';
+import * as saves from './saves.mjs';
+import { credits as money, group as digits, patterns, setLanguage, t } from './words.mjs';
 import {
   briefing,
   chart,
@@ -261,7 +262,9 @@ export function activate(ctx) {
   async function paint(doc) {
     if (!scene || !engine) return;
     if (doc?.setup) {
-      scene.show(setupScene(doc.setup));
+      // A run still in the document is a run that can be gone back to, and the
+      // chooser has to say so: nothing is thrown away until a name is sent.
+      scene.show(setupScene(doc.setup, { canCancel: Boolean(doc.save) }));
       return;
     }
     if (!doc?.save) {
@@ -285,7 +288,11 @@ export function activate(ctx) {
      * away.
      */
     if (doc.closed === true) {
-      scene.show(menuScene(engine, dict, state, { armedRestart }));
+      scene.show(menuScene(engine, dict, state, {
+        armedRestart,
+        slots: saves.list(ctx.dataDir()),
+        sheetView,
+      }));
       return;
     }
     // A fight takes the whole panel. There is no market where the shooting is,
@@ -302,6 +309,9 @@ export function activate(ctx) {
       pictures: art.goods,
       amount: asking('market'),
       deck: deckOpen,
+      // Read on every repaint rather than cached: a slot written a moment ago
+      // has to show as written, and this is six small files.
+      slots: sheetView === 'save' || sheetView === 'load' ? saves.list(ctx.dataDir()) : [],
     }));
   }
 
@@ -364,8 +374,26 @@ export function activate(ctx) {
     if (!result.ok) throw new Error(dict.t(result.error) || t('refuse.jumpRefused'));
     const system = state.systems[result.arrivedAt ?? target.id];
     const notes = [];
-    if (result.event) notes.push(dict.t(result.event.bodyKey));
-    if (result.blackHole) notes.push(dict.t('event.blackHole.body'));
+    if (result.incident) notes.push(dict.renderMessage(result.incident.bodyKey, result.incident.params));
+    if (result.event) notes.push(dict.renderMessage(result.event.bodyKey, result.event.params));
+    /**
+     * A singularity, which the engine reports raw rather than as a story.
+     *
+     * `warp` answers with what happened — survived or not, the damage, the days
+     * — and `blackHoleEvent` is the thing that turns it into a key and its
+     * parameters. Read as though it were already an event it has no `bodyKey`,
+     * and rendering `undefined` throws inside the dictionary: the jump then
+     * came back as a refusal, with the ship still where it started and a
+     * TypeError where the sentence should have been. Rare enough to look like
+     * a flaky test — a black hole is a fraction of a percent of jumps.
+     *
+     * Whether the pod fired is the second half of the story and changes the
+     * words: escaping in one is not the same ending as not escaping.
+     */
+    if (result.blackHole) {
+      const story = engine.blackHoleEvent(result.blackHole, !result.blackHole.survived && Boolean(state.ship.escapePod));
+      notes.push(dict.renderMessage(story.bodyKey, story.params));
+    }
     const encounters = result.encounters ?? [];
     return { encounters, arrival: { system: system.nameId, notes, met: encounters.length } };
   }
@@ -597,7 +625,7 @@ export function activate(ctx) {
       const text = dict.renderMessage(`quest.desc.${quest.type}`, engine.questParams(state, quest));
       return t('screen.jobs.line', {
         text: text.startsWith('quest.desc.') ? dict.t(`quest.type.${quest.type}`) : text,
-        reward: quest.reward,
+        reward: digits(quest.reward),
       });
     });
     return { summary: `${t('screen.jobs.head')}\n\n${lines.join('\n') || t('screen.jobs.nothing')}` };
@@ -1135,6 +1163,50 @@ export function activate(ctx) {
    * Every label on it — the moves, the meters, the title — was chosen in the
    * old language, and nothing else would redraw them until the next turn.
    */
+  /**
+   * The buttons in the left panel: NEW GAME, SAVE, LOAD.
+   *
+   * They are there rather than on the row above the composer because that row
+   * only exists while a game is drawn, and the moment LOAD GAME is for is the
+   * one where nothing is. The app claims the panel for the open conversation
+   * after this returns, so painting a scene here is what makes the game appear
+   * in the chat the button was pressed from.
+   *
+   * Nothing destructive happens on the press itself. NEW GAME asks who is
+   * flying, and SAVE and LOAD open the list of slots — the slot is the thing
+   * that gets pressed, and a run is only written over from a row that says
+   * whose run it is.
+   */
+  ctx.onButton(async (key) => {
+    await load();
+    const doc = (await ctx.state.get()) ?? {};
+
+    if (key === 'newGame') {
+      armedRestart = false;
+      askingAmount = null;
+      deckOpen = false;
+      // A run in progress is not thrown away here. It is written over when the
+      // name is sent, and until then the old save is still in the document —
+      // which is what makes closing the chooser a way out rather than a loss.
+      await save({ ...doc, setup: {} });
+      return { status: t('ui.newRun'), cards: true };
+    }
+
+    if (key !== 'save' && key !== 'load') return { status: t('ui.moveGone') };
+
+    // A game that was put away still has a panel to draw — the menu — so this
+    // works closed as well as running. With nothing saved at all there is
+    // nothing to draw and nothing to claim, which is the honest answer.
+    if (!doc.save && !doc.setup) return { status: t('ui.noGame') };
+    if (key === 'save' && (doc.closed === true || !doc.save)) return { status: t('saves.notRunning') };
+
+    sheetView = key;
+    deckOpen = false;
+    askingAmount = null;
+    await paint(doc);
+    return { sheet: true };
+  });
+
   ctx.onSettingsChanged(async () => {
     if (!engine) return;
     speak();
@@ -1180,6 +1252,25 @@ export function activate(ctx) {
        * is a stale click on a chooser already answered, and acting on it would
        * replace a commander mid-run.
        */
+      /**
+       * Out of the question, back to the run it was asked over.
+       *
+       * Only while there is one: with nothing in the document this would be a
+       * card that closes the game onto an empty panel.
+       */
+      if (actionId === 'setup-cancel') {
+        if (!doc.save) return { status: t('setup.nothingToKeep') };
+        const kept = { ...doc };
+        delete kept.setup;
+        await save(kept);
+        const flying = await read();
+        return {
+          status: flying
+            ? t('setup.kept', { commander: flying.commanderName, day: flying.day })
+            : t('setup.nothingToKeep'),
+        };
+      }
+
       if (actionId.startsWith('background-')) {
         if (!doc.setup || doc.setup.background) return { status: t('setup.backgroundTaken') };
         const key = actionId.slice('background-'.length);
@@ -1248,6 +1339,72 @@ export function activate(ctx) {
           // Sent as words rather than settled here: coming back aboard after a
           // week away is exactly when the position is worth reading out, and
           // `space_trader` answers this phrase with the briefing.
+          submit: t('move.resume.submit'),
+        };
+      }
+
+      /**
+       * A slot, pressed.
+       *
+       * All three answered before the run is read, because two of them are
+       * about a run that is not loaded yet: LOAD replaces whatever is in the
+       * document, and DELETE touches no game at all. Saving needs one and says
+       * so itself.
+       *
+       * Nothing here submits. Writing a slot is bookkeeping and costs no turn;
+       * loading one ends with the panel showing the run and the model told
+       * about it in the same words a resume uses.
+       */
+      if (actionId.startsWith('save-') || actionId.startsWith('load-') || actionId.startsWith('delete-')) {
+        const [what, slot] = [actionId.slice(0, actionId.indexOf('-')), actionId.slice(actionId.indexOf('-') + 1)];
+        if (!saves.isSlot(slot)) return { status: t('ui.moveGone') };
+        armedRestart = false;
+        askingAmount = null;
+
+        if (what === 'delete') {
+          saves.remove(ctx.dataDir(), slot);
+          await paint(doc);
+          return { status: t('saves.deleted', { n: slot }), sheet: true };
+        }
+
+        if (what === 'save') {
+          const held = doc.closed === true ? null : await read();
+          if (!held || !doc.save) {
+            await paint(doc);
+            return { status: t('saves.notRunning') };
+          }
+          const ok = saves.write(ctx.dataDir(), slot, {
+            save: doc.save,
+            meta: saves.metaOf(engine, held),
+          });
+          await paint(doc);
+          return {
+            status: ok
+              ? t('saves.saved', { n: slot, commander: held.commanderName, day: held.day })
+              : t('saves.failed'),
+            sheet: true,
+          };
+        }
+
+        const held = saves.read(ctx.dataDir(), slot);
+        if (!held) {
+          await paint(doc);
+          return { status: t('saves.unreadable', { n: slot }) };
+        }
+        const loaded = JSON.parse(held.save);
+        deckOpen = false;
+        sheetView = 'market';
+        // Everything the old document held is dropped: a fight in progress, a
+        // half-made commander and a closed flag all belong to the run being
+        // replaced, and carrying any of them over would be the new game
+        // inheriting the old one's shooting.
+        await save({
+          save: held.save,
+          day: loaded.day,
+          commander: loaded.commanderName,
+        });
+        return {
+          status: t('saves.loaded', { n: slot, commander: loaded.commanderName, day: loaded.day }),
           submit: t('move.resume.submit'),
         };
       }

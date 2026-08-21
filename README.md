@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.3.2.
+with the model reading the position over your shoulder. Version 2.4.0.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -11,7 +11,7 @@ names the good, the amount and what it costs you if the jump goes badly.
 Playable in **English and Ukrainian** — the language is a setting on the plugin's row, and a run
 started in one can be carried on in another.
 
-**Needs Wasteland Next 0.1.5, build of 19.08 or newer** — the plugin declares `apiVersion: 11`,
+**Needs Wasteland Next with plugin API 12 or newer** — the plugin declares `apiVersion: 12`,
 takes the `scene` service, and asks it for a text field and colours for its bars. On older builds it
 appears in the list marked "update Wasteland Next".
 
@@ -80,12 +80,25 @@ them.
 which buys nothing and puts the deck down. That matters more than it sounds — the app's chooser is
 its *question* dialog, with no close button, no Escape and no dismissing it by clicking away, because
 a question with a way out is a question that never gets answered. A market is not a question, and
-until 2.3.2 the deck had no card that put it down: everything either bought something or opened a
+until 2.4.0 the deck had no card that put it down: everything either bought something or opened a
 second dialog on top. There was no leaving a market without buying.
 
 **The whole table is still one press away** — the second-to-last card in the deck, and the app's own
 sheet button. Eight cards is a hand; eighteen commodities is a spreadsheet, and the sheet is where a
 spreadsheet belongs.
+
+**Six slots, and an autosave that was always there.** The run being played is written to the
+plugin's own document after every purchase and every jump, so a game is never lost by closing
+anything — that is the autosave, and it has no slot because it is not a copy. `[ SAVE ]` puts a copy
+into one of six numbered slots; `[ LOAD ]` flies one; a third list throws one away, kept apart from
+the other two because it is the only thing here that cannot be undone. Each row reads the commander,
+the day, the system, the ship and the credits, so a slot is identified by the run in it rather than
+by when you happened to press the button.
+
+The slots are files in the plugin's data directory, one each — not in its installed tree, which is
+deleted and rewritten on every update, and not in the plugin's document, which is a single JSON file
+against a 1 MB ceiling that one 250 KB galaxy already half fills. A slot written by a newer build is
+shown as unreadable rather than half-loaded into a game with no way back out.
 
 **The job board.** Contracts are a list on a planet, and a list is what the sheet is for. JOBS shows
 what you have taken on and what this port is offering; press an offer to take it, press a contract to
@@ -124,7 +137,7 @@ near cripple is not always the better shot.
 **A hauler is not a gunfight.** A lone trader met in transit keeps a stall: three to six goods it
 will sell and a few it will buy, priced off the base rather than off any market — a shop three
 parsecs from anywhere, which no chart knows about. The engine has dealt one to every solitary trader
-since the encounter was written, and until 2.3.2 nothing in the plugin could reach it. TRADE opens
+since the encounter was written, and until 2.4.0 nothing in the plugin could reach it. TRADE opens
 the two price lists behind the sheet, a row opens the field, and the buying is the same field a
 planet's market uses. It costs no turn either. Firing on them shuts it — the hint on FIRE says so
 before the press, because it does not come back: they become an enemy and you become a pirate.
@@ -228,14 +241,27 @@ and the answer to it is in the [Space Trader](https://github.com/alexbeatnik/Spa
 
 ## Settings
 
-| Setting | What it is |
+| Control | What it is |
 | --- | --- |
 | Language | English or Українська |
+| `[ NEW GAME ]` | the background cards, then a name |
+| `[ SAVE ]` | copy the run being played into one of six slots |
+| `[ LOAD ]` | open a slot — whether or not a game is running |
 
-**One, and that is the whole list.** It is drawn twice: on the plugin's row in PLUGINS, where
-somebody decides about the plugin, and in a section of the left panel headed SPACE TRADER, where
-somebody plays — one declaration, two places, asked for with `"panel"` in the manifest and drawn
-while the plugin is running.
+All four are drawn twice: on the plugin's row in PLUGINS, where somebody decides about the plugin,
+and in a section of the left panel headed SPACE TRADER, where somebody plays — one declaration, two
+places, asked for with `"panel"` in the manifest and drawn while the plugin is running.
+
+**Three of them are buttons, which is a setting type that stores nothing.** A setting is a question
+whose answer the app keeps; these are things that happen when they are pressed. They needed a home in
+the left panel and the panel section is built from the settings list, so plugin API 12 added
+`type: "button"` and `ctx.onButton` to Wasteland Next for exactly this. A press answers in the same
+words a move on the game's row answers with — `{status, sheet, cards, submit}` — and the app claims
+the panel for the conversation the press came from, which is what makes LOAD work when there is
+nothing on screen at all.
+
+**Why the left panel and not the row above the composer.** That row only exists while a game is
+drawn. LOAD is for the moment when none is.
 
 **There used to be a second, and it was a mistake.** *Met in transit* asked, before any of it had
 happened, what to do about a fight — one standing answer to a question that is different every time
@@ -245,11 +271,9 @@ itself, **FIGHT IT OUT** and **RUN FOR IT**, pressed with the odds and both hull
 them. A host with no panel has nothing to press, so a fight nobody drives there runs and submits to
 the police, which is what the setting defaulted to.
 
-**New game, load game and quit are on the panel, not here.** They are not settings: a setting is a
-value the app stores and hands back, and these are things that happen when they are pressed. The app
-draws a panel section from the declared settings and from nothing else, so a button cannot live in
-one. NEW GAME and QUIT are on the row while a run is going, and QUIT leaves the panel showing the run
-it closed on — commander, day, system, ship and credits — with LOAD GAME and NEW GAME under it.
+**QUIT stays on the game's own row**, because it is a thing you do to a game that is running, and it
+leaves the panel showing the run it closed on — commander, day, system, ship and credits — with LOAD
+GAME and NEW GAME under it.
 
 The commander's name used to be a third. It is asked for by the game now, on the card that starts a
 run, which is where a question about a run belongs.
@@ -357,12 +381,14 @@ messages. The game speaks two languages; the repository speaks one.
 - `plugins/space-trader/main.mjs` — the adapter: the two actions, the panel's `act`, and the save;
 - `plugins/space-trader/panel.mjs` — the scene document: meters, lists, the chart, the row of moves;
 - `plugins/space-trader/fight.mjs` — the fight: its own state, its own panel, one round per press;
+- `plugins/space-trader/saves.mjs` — the six slots, as files, and what a row says about each;
 - `plugins/space-trader/view.mjs` — the printed screens, and the briefing the model reads;
 - `plugins/space-trader/words.mjs` — the plugin's translator: `t()`, plurals, and the words it listens for;
 - `plugins/space-trader/locales/` — `en.mjs`, `uk.mjs`, one key per phrase;
 - `plugins/space-trader/engine.mjs`, `i18n.mjs` — the game, bundled; generated, not edited;
 - `tests/panel.test.mjs` — the panel against a stub host, pressed the way a person presses it;
 - `tests/fight.test.mjs` — a fight put in front of the panel on purpose, and fought through it;
+- `tests/saves.test.mjs` — the slots, pressed from the left panel the way the app presses them;
 - `tests/play.test.mjs` — the same game played by typing, with no panel at all;
 - `tests/words.test.mjs` — the two dictionaries against each other;
 - `tests/manifest.test.mjs` — the manifest is true about the directory it sits in;
@@ -377,7 +403,28 @@ both read the same save, which is what stops the screen and the prompt describin
 
 ---
 
-## What changed in 2.3.2
+## What changed in 2.4.0
+
+- **Fixed: a black hole ended the jump in a TypeError.** `warp` reports a singularity raw — survived or not, the damage, the days — and `blackHoleEvent` is what turns it into a sentence. Read as though it were already one it has no `bodyKey`, rendering `undefined` threw inside the dictionary, and the jump came back as a refusal with the ship still where it started. A fraction of a percent of jumps, which is exactly the rate that reads as a flaky test.
+
+- **New game, save and load are in the left panel.** Always, whether or not a game is drawn — which
+  is the point, because the row above the composer only exists while one is, and LOAD is for the
+  moment when none is. This needed a feature in the app: plugin API 12 adds `type: "button"`
+  settings and `ctx.onButton`, a control that does something rather than storing a value, drawn
+  wherever a plugin's settings are drawn. A press answers in the same words a move answers with, and
+  claims the panel for the conversation it came from.
+- **Six save slots.** The run being played was already written after every purchase and every jump —
+  an autosave in everything but name — and there was no way to keep a second one. `[ SAVE ]` copies
+  it into a numbered slot, `[ LOAD ]` flies one back, and a slot names the commander, the day, the
+  system, the ship and the credits so it is identified by the run in it. Kept as files in the
+  plugin's data directory: the document is one JSON file against a 1 MB ceiling and a galaxy is
+  250 KB of it, so six would not fit, and the data directory survives a version bump where the
+  installed tree does not.
+- **Throwing a slot away is its own list**, kept apart from the two that load and save, because it is
+  the only thing here that cannot be undone and it should not sit under the cursor of somebody
+  aiming at LOAD.
+
+## What changed in 2.4.0
 
 - **Fixed: a market could not be left without buying something.** The deck is dealt in the app's
   chooser, which is its question dialog — no close button, no Escape, no dismissing it by clicking
@@ -485,7 +532,7 @@ both read the same save, which is what stops the screen and the prompt describin
   the shooting stops. The model narrates a fight it did not decide, and is told on every turn of one
   not to narrate rounds, not to say who won, and not to invent damage.
 - **FIGHT IT OUT and RUN FOR IT** hand the rest of it over — every ship left on the leg, not only the
-  one in front. Until 2.3.2 that was one button reading a settings row; the row is gone and the
+  one in front. Until 2.4.0 that was one button reading a settings row; the row is gone and the
   choice is made where it is made. On a host with no panel there is nothing to press, and a fight
   there runs and submits to the police.
 - **A fight is in the save.** Close the app in the middle of a boarding action and it is still there,

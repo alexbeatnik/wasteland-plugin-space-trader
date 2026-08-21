@@ -352,6 +352,29 @@ market каже, що тут скільки коштує; chart каже, що �
   'note.fightOn': 'На панелі користувача триває бій. НЕ описуй раундів і не вирішуй результату — це робить рушій, коли він натискає. Відповідай про позицію і радь, якщо питають.',
   'refuse.notAFightMove': '«{what}» — не хід у бою; є: вогонь, тікати, зблизитися, відійти, допустити огляд, хабар, здатися, на абордаж, хай іде само',
 
+  /* ---------- слоти ---------- */
+
+  'saves.group.save': 'ЗБЕРЕГТИ У',
+  'saves.group.load': 'ЗАВАНТАЖИТИ З',
+  'saves.group.empty': 'слотів немає',
+  'saves.group.clear': 'ОЧИСТИТИ СЛОТ',
+  'saves.group.clear.empty': 'усі слоти порожні',
+  'saves.row.label': 'СЛОТ {n}',
+  'saves.row.empty': 'порожньо',
+  'saves.row.unreadable': 'записано новішою збіркою або пошкоджено',
+  'saves.row.held': '{commander} · день {day} · {system} · {ship} · {credits}',
+  'saves.row.write': 'натисніть, щоб записати сюди',
+  'saves.row.overwrite': 'натисніть, щоб перезаписати',
+  'saves.row.load': 'натисніть, щоб летіти цим',
+  'saves.row.delete': 'натисніть, щоб очистити',
+  'saves.row.deleteHeld': '{commander}, день {day} — натисніть, щоб очистити',
+  'saves.saved': 'Слот {n} записано — {commander}, день {day}.',
+  'saves.loaded': 'Слот {n} завантажено — {commander}, день {day}.',
+  'saves.deleted': 'Слот {n} очищено.',
+  'saves.failed': 'Не вдалося записати цей слот.',
+  'saves.unreadable': 'Слот {n} не читається.',
+  'saves.notRunning': 'Немає польоту, який можна зберегти. Завантажте або почніть новий.',
+
   /* ---------- the game put away ---------- */
 
   'menu.title': 'SPACE TRADER',
@@ -399,6 +422,10 @@ market каже, що тут скільки коштує; chart каже, що �
   'setup.chosen': '{background}. Тепер ім’я.',
   'setup.needBackground': 'Спершу оберіть фах.',
   'setup.needName': 'Командирові потрібне ім’я.',
+  'setup.keep.label': 'ЛЕТІТИ ДАЛІ',
+  'setup.keep.note': 'Не треба — повернутися до польоту, що триває. Нічого не втрачено.',
+  'setup.kept': 'Назад до {commander}, день {day}.',
+  'setup.nothingToKeep': 'Немає польоту, до якого повертатися.',
   'setup.backgroundTaken': 'На це питання вже відповіли.',
   'setup.intro.words': 'то з чого починаємо?',
 

@@ -50,6 +50,7 @@ function harness({ settings = {}, document = {} } = {}) {
       ctx._context = fn;
     },
     onSettingsChanged: () => {},
+    onButton: (fn) => { ctx._button = fn; },
     store: { get: (key, fallback = '') => settings[key] ?? fallback },
     state: {
       get: () => doc,
@@ -81,6 +82,7 @@ function harness({ settings = {}, document = {} } = {}) {
     move: (steps) => actions.get('space_trader_move').run(steps, {}),
     act: (id, value) => presenter.act(id, value),
     context: () => ctx._context(),
+    press: (key) => ctx._button(key),
   };
 }
 
@@ -311,7 +313,7 @@ test('RUN FOR IT settles the lot the other way', async () => {
 });
 
 /**
- * The posture was a settings row until 2.3.2 — one standing answer, given
+ * The posture was a settings row until 2.4.0 — one standing answer, given
  * before the jump, to a question that is different every time somebody stops
  * you. It is two buttons now, pressed against a position that is on screen.
  */

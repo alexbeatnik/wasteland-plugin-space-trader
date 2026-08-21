@@ -49,6 +49,7 @@ function harness({ settings = {} } = {}) {
     },
     onTurnStart: () => {},
     onSettingsChanged: () => {},
+    onButton: (fn) => { ctx._button = fn; },
     store: {
       get: (key, fallback = '') => settings[key] ?? fallback,
       all: () => ({ ...settings }),
@@ -489,3 +490,30 @@ test('a wormhole in range is marked as one, not priced in fuel', async () => {
   const briefing = await app.context();
   assert.ok(briefing.includes(`${near.nameId} (wormhole)`), briefing);
 });
+
+test('warp event, crew incident, and black hole notes are rendered with parameters', async () => {
+  const app = await started();
+  const state = JSON.parse(app.document.save);
+  const here = state.systems[state.currentSystem];
+  const target = state.systems.find((sys) => sys.id !== here.id
+    && Math.hypot(sys.x - here.x, sys.y - here.y) <= state.ship.fuel);
+
+  // Perform a jump and simulate notes from blackHole, event, and incident
+  const result = await app.move(`warp ${target.nameId}`);
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(result.summary, /event\.blackHole\.body/);
+  assert.doesNotMatch(result.summary, /\{dmg\}/);
+  assert.doesNotMatch(result.summary, /\{value\}/);
+});
+
+test('quest screen formats reward with digits grouping', async () => {
+  const app = await started();
+  const state = JSON.parse(app.document.save);
+  state.quests = [{ id: 'q1', type: 'delivery', targetSystem: 5, reward: 1500, daysLeft: 10, status: 'active' }];
+  app.document.save = JSON.stringify(state);
+
+  const result = await app.show('jobs');
+  assert.equal(result.ok, true);
+  assert.match(result.summary, /1,500/);
+});
+

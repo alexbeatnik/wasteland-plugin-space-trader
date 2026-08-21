@@ -50,6 +50,7 @@ function harness({ settings = {}, document = {}, dataDir = '.' } = {}) {
     context: (fn) => {
       ctx._context = fn;
     },
+    onButton: (fn) => { ctx._button = fn; },
     onSettingsChanged: (fn) => {
       changed = fn;
     },
@@ -91,6 +92,7 @@ function harness({ settings = {}, document = {}, dataDir = '.' } = {}) {
     move: (steps) => actions.get('space_trader_move').run(steps, {}),
     act: (id, value) => presenter.act(id, value),
     context: () => ctx._context(),
+    press: (key) => ctx._button(key),
     settingsChanged: () => changed?.('language'),
     /** Let the activation's own repaint finish. */
     settle: () => new Promise((resolve) => setImmediate(resolve)),

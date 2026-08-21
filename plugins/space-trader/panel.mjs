@@ -210,7 +210,7 @@ export function board(engine, dict, state, image = '') {
  * right shape anyway — a hand of choices rather than a spreadsheet.
  *
  * Six of them are deals. The other two are the ways out: the whole table, and
- * leaving. That was seven and one until 2.3.2, when the eighth card had to be
+ * leaving. That was seven and one until 2.4.0, when the eighth card had to be
  * found somewhere — see `marketCards`.
  */
 const DEAL_CARDS = 6;
@@ -589,10 +589,72 @@ function newsGroups(engine, dict, state) {
  * followed by the ship, the contracts and the log, and a player who wanted to
  * know what ore fetches here has to find it.
  */
-export function groupsFor(engine, dict, state, view) {
+/**
+ * The slots, as one list that is pressed to save or to load.
+ *
+ * Two modes and one list, because six slots drawn twice is twelve rows of the
+ * same six things. `mode` decides only what a press does and what the note
+ * under each row says it will do — which is the honest way round: a slot with a
+ * commander in it reads the same whichever button opened it.
+ *
+ * An empty slot cannot be loaded and a full one warns before it is written
+ * over. Neither is arming, because there is no digit to hit by accident here —
+ * these are rows in a dialog, not the row above the composer.
+ */
+export function saveGroups(dict, slots, { mode = 'load', running = false } = {}) {
+  const items = slots.map(({ slot, meta, unreadable }) => {
+    const filled = Boolean(meta);
+    const note = unreadable
+      ? t('saves.row.unreadable')
+      : filled
+        ? t('saves.row.held', {
+          commander: meta.commander,
+          day: meta.day,
+          system: meta.system,
+          ship: dict.shipName(meta.ship),
+          credits: money(meta.credits),
+        })
+        : t('saves.row.empty');
+
+    // What a press would do, said before it is pressed. A slot with somebody in
+    // it is written over, and that is worth a word of its own.
+    const can = mode === 'save' ? running : filled && !unreadable;
+    return {
+      label: t('saves.row.label', { n: slot }),
+      note: can ? `${note} — ${t(mode === 'save' ? (filled ? 'saves.row.overwrite' : 'saves.row.write') : 'saves.row.load')}` : note,
+      tone: unreadable ? 'bad' : filled ? 'good' : '',
+      action: can ? `${mode === 'save' ? 'save' : 'load'}-${slot}` : '',
+    };
+  });
+
+  const groups = [{
+    label: t(mode === 'save' ? 'saves.group.save' : 'saves.group.load'),
+    empty: t('saves.group.empty'),
+    items,
+  }];
+
+  // Deleting is its own list rather than a third button on every row: it is the
+  // one thing here that cannot be undone, and it should not sit under the
+  // cursor of somebody aiming at LOAD.
+  const filled = slots.filter((entry) => entry.meta || entry.unreadable);
+  groups.push({
+    label: t('saves.group.clear'),
+    empty: t('saves.group.clear.empty'),
+    items: filled.map(({ slot, meta }) => ({
+      label: t('saves.row.label', { n: slot }),
+      note: meta ? t('saves.row.deleteHeld', { commander: meta.commander, day: meta.day }) : t('saves.row.delete'),
+      tone: 'warn',
+      action: `delete-${slot}`,
+    })),
+  });
+  return groups;
+}
+
+export function groupsFor(engine, dict, state, view, { slots = [], running = true } = {}) {
   if (view === 'ship') return shipGroups(engine, dict, state);
   if (view === 'jobs') return jobGroups(engine, dict, state);
   if (view === 'news') return newsGroups(engine, dict, state);
+  if (view === 'save' || view === 'load') return saveGroups(dict, slots, { mode: view, running });
   return marketGroups(engine, dict, state);
 }
 
@@ -671,7 +733,10 @@ export function moves(engine, state, { armedRestart = false } = {}) {
  * screen would be the one the player trusts.
  */
 export function snapshot(engine, dict, state, options = {}) {
-  const { sheetView = 'market', armedRestart = false, image = '', pictures = {}, amount = null, deck = false } = options;
+  const {
+    sheetView = 'market', armedRestart = false, image = '', pictures = {},
+    amount = null, deck = false, slots = [],
+  } = options;
   const sys = engine.currentSystem(state);
   const ship = state.ship;
   const wrecked = isWrecked(state);
@@ -739,7 +804,7 @@ export function snapshot(engine, dict, state, options = {}) {
     meters,
     fields,
     tags,
-    groups: groupsFor(engine, dict, state, sheetView),
+    groups: groupsFor(engine, dict, state, sheetView, { slots, running: !wrecked }),
     actions: moves(engine, state, { armedRestart }),
     board: board(engine, dict, state, image),
     /**
@@ -823,7 +888,7 @@ export function affordable(engine, state, good) {
  * where the log and the last position are read, and a commander who died on
  * day 300 is worth looking at before the next one launches.
  */
-export function menuScene(engine, dict, state, { armedRestart = false } = {}) {
+export function menuScene(engine, dict, state, { armedRestart = false, slots = [], sheetView = 'load' } = {}) {
   const wrecked = state ? isWrecked(state) : false;
   const fields = [];
   const actions = [];
@@ -866,6 +931,15 @@ export function menuScene(engine, dict, state, { armedRestart = false } = {}) {
       : t('menu.subtitle.none'),
     fields,
     tags: wrecked ? [{ label: t('panel.tag.over'), tone: 'bad' }] : [],
+    /**
+     * The slots, behind the sheet, here as well as in a running game.
+     *
+     * This is the panel with nothing being played, which is exactly when LOAD
+     * GAME is pressed — so the list it opens has to exist here. Saving is
+     * offered too and refuses every row, because a slot cannot be written from
+     * a game that is not running and the note on the row is where that is said.
+     */
+    groups: saveGroups(dict, slots, { mode: sheetView === 'save' ? 'save' : 'load', running: false }),
     actions,
   };
 }
@@ -879,20 +953,34 @@ export function menuScene(engine, dict, state, { armedRestart = false } = {}) {
  * composer is a message, a message reaches the model first, and a small model
  * asked to pass a word through sometimes answers it instead.
  */
-export function setupScene(setup) {
+export function setupScene(setup, { canCancel = false } = {}) {
   if (!setup.background) {
+    /**
+     * A card to walk away by, when there is something to walk back to.
+     *
+     * The chooser is the app's question dialog: no close button, no Escape, and
+     * the way out has to be one of the answers. NEW GAME does not throw the old
+     * run away until a name is sent, so without this the button was a one-way
+     * door — press it by mistake with a hundred days behind you and the only
+     * way back was to type at the composer.
+     *
+     * A card and not a move on the row, deliberately: the app throws a chooser
+     * open by itself only when the scene offers no moves at all, and one move
+     * here would mean the question never opened.
+     */
+    const items = cardChoices().map((choice) => ({
+      label: choice.label,
+      note: choice.note,
+      tone: choice.key === 'random' ? 'warn' : '',
+      action: `background-${choice.key}`,
+    }));
+    if (canCancel) {
+      items.push({ label: t('setup.keep.label'), note: t('setup.keep.note'), action: 'setup-cancel' });
+    }
     return {
       title: t('setup.title'),
       subtitle: t('setup.subtitle.background'),
-      cards: {
-        label: t('setup.cards.label'),
-        items: cardChoices().map((choice) => ({
-          label: choice.label,
-          note: choice.note,
-          tone: choice.key === 'random' ? 'warn' : '',
-          action: `background-${choice.key}`,
-        })),
-      },
+      cards: { label: t('setup.cards.label'), items },
     };
   }
   const chosen = backgroundName(setup.background);
@@ -908,7 +996,13 @@ export function setupScene(setup) {
       submit: t('setup.entry.submit'),
     },
     // The same id as the field, so a player who dismissed it has the way back
-    // that a dismissible window has to have.
-    actions: [{ id: 'name', label: t('setup.name.button'), hint: t('setup.name.buttonHint') }],
+    // that a dismissible window has to have — and, while there is still a run
+    // in the document, the way out of the whole question.
+    actions: canCancel
+      ? [
+        { id: 'name', label: t('setup.name.button'), hint: t('setup.name.buttonHint') },
+        { id: 'setup-cancel', label: t('setup.keep.label'), hint: t('setup.keep.note') },
+      ]
+      : [{ id: 'name', label: t('setup.name.button'), hint: t('setup.name.buttonHint') }],
   };
 }
