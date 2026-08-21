@@ -18,7 +18,7 @@ import * as engine from '../plugins/space-trader/engine.mjs';
 import * as dict from '../plugins/space-trader/i18n.mjs';
 import * as fight from '../plugins/space-trader/fight.mjs';
 import { activate } from '../plugins/space-trader/main.mjs';
-import { setLanguage } from '../plugins/space-trader/words.mjs';
+import { setLanguage, t } from '../plugins/space-trader/words.mjs';
 
 function harness({ settings = {}, document = {} } = {}) {
   const actions = new Map();
@@ -244,7 +244,7 @@ test('one shot ends it, and the account waits for the jump to finish', async () 
   assert.ok(!ids(app).includes('fight-attack'));
 
   const done = await app.act('fight-on');
-  assert.equal(done.submit, 'how the fight went');
+  assert.equal(done.submit, t('move.fight.submit'));
   assert.equal(app.document.fight, undefined, 'the fight outlived the jump');
   // The whole thing goes into the transcript at once, when there is a "what
   // happened" to tell.
@@ -299,7 +299,7 @@ test('FIGHT IT OUT settles the lot and finishes the jump', async () => {
 
   const done = await app.act('fight-autoFight');
   assert.equal(app.document.fight, undefined);
-  assert.ok(done.submit === 'how the fight went' || app.game.ship.hull <= 0);
+  assert.ok(done.submit === t('move.fight.submit') || app.game.ship.hull <= 0);
   assert.ok((app.document.narrate ?? '').trim().length > 0);
 });
 
@@ -309,7 +309,7 @@ test('RUN FOR IT settles the lot the other way', async () => {
 
   const done = await app.act('fight-auto');
   assert.equal(app.document.fight, undefined);
-  assert.ok(done.submit === 'how the fight went' || app.game.ship.hull <= 0);
+  assert.ok(done.submit === t('move.fight.submit') || app.game.ship.hull <= 0);
 });
 
 /**

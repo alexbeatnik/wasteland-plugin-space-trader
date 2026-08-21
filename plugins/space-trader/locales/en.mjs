@@ -39,9 +39,13 @@ told which are on the row this turn, so never name a button, never say "press
 2", and never invent one — say what to do and let them find it. Everything on
 the row can also be typed, so a move is never out of reach.
 
-Never call either action with empty "steps". If the game sends a short line of
-its own after a run begins, pass it to "space_trader" as it stands, or simply
-answer — never as a move.
+Never call either action with empty "steps". A line the game sends of its own
+after a run begins is not conversation: pass it to "space_trader" as it stands,
+never as a move, and never answer it out of what you remember. The panel moves
+without you — a fight is fought a round at a time and a commander can die
+between two of your turns, and not one line of it reaches this conversation. So
+the position you were shown last turn may be days old and a ship you were told
+about may be gone. Asked what happened, look.
 
 MOVES — {"type":"space_trader_move","steps":"<move>"}
 
@@ -207,7 +211,7 @@ not produce this turn.
   'move.system.hint': 'inside this system — moons, belts, stations, and what can be dug out of them',
   'move.mine.label': 'MINE',
   'move.mine.hint': 'a day at the workings here — {resource}, a unit at a time',
-  'move.mine.submit': 'how the day at the workings went',
+  'move.mine.submit': 'space trader: how the day at the workings went',
   'move.fly.submit': 'cross to {place}',
   'move.ship.label': 'SHIP',
   'move.ship.hint': 'the hull, what is fitted and who is aboard',
@@ -222,7 +226,7 @@ not produce this turn.
   'move.repair.hint': '{units} of hull at {price} cr each — {cost} cr to mend',
   'move.repair.submit': 'repair',
   'move.warp.submit': 'warp {system}',
-  'move.fight.submit': 'how the fight went',
+  'move.fight.submit': 'space trader: how the fight went',
   'move.buy.submit': 'buy {amount} {good}',
   'move.sell.submit': 'sell {amount} {good}',
   'move.restart.label': 'NEW GAME',
@@ -232,7 +236,7 @@ not produce this turn.
   'move.quit.label': 'QUIT',
   'move.quit.hint': 'leave the game — the run is kept, and the panel keeps the way back',
   'move.quit.hintOver': 'leave the game',
-  'move.resume.submit': 'resume the game',
+  'move.resume.submit': 'space trader: resume the game',
 
   /* ---------- the fight ---------- */
 

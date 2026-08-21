@@ -247,6 +247,41 @@ export function activate(ctx) {
     };
   }
 
+  /**
+   * The position, and what to say when there is no longer one.
+   *
+   * Every turn answers with two things: a `summary`, which is the card the
+   * player reads, and a `feedback`, which is what the model is told about the
+   * position it is advising on. Both of them used to be built by asking the
+   * screen and the briefing directly, and neither of those knows the run can
+   * end — a hull of 0/60 is a number like any other to them, and the briefing
+   * goes on listing the systems in range of a ship that no longer exists.
+   *
+   * A fight fought from the panel costs no turn, so a commander can die
+   * without a single line about it reaching the transcript. What the model has
+   * to go on afterwards is exactly this feedback, and a briefing that reads
+   * like an ordinary day is how it comes to answer that the game has no
+   * fighting in it while the panel behind the answer says the ship was lost on
+   * day three.
+   *
+   * So the question is asked here, once, the way `isWrecked` is asked once:
+   * over means over at every door, whether the move was pressed or typed.
+   */
+  const position = (state) => (isWrecked(state) ? t('ui.dead') : status(engine, dict, state));
+  /**
+   * `lead` is whatever the turn wanted to say before the position — that the
+   * market is on screen, that the save was opened again. It is dropped on a
+   * wrecked run rather than printed above the ending, because those lines are
+   * instructions about a game that is still being played: "give the user a
+   * short briefing, then ask what they want to do next" is the wrong thing to
+   * tell a model whose next sentence has to be that the commander is dead. An
+   * account of what happened is not a lead and is not passed here — that still
+   * goes in front of the answer, on a wrecked run most of all.
+   */
+  const note = (state, lead = '') => (isWrecked(state)
+    ? t('note.dead')
+    : `${lead ? `${lead}\n` : ''}${briefing(engine, dict, state)}`);
+
   /* ---------- the panel ---------- */
 
   /**
@@ -660,8 +695,8 @@ export function activate(ctx) {
       const ended = await endFight(doc, state, record, { narrate: false });
       return {
         ok: !isWrecked(state),
-        summary: `${ended.account}\n\n${isWrecked(state) ? t('ui.dead') : status(engine, dict, state)}`,
-        feedback: `${ended.account}\n${isWrecked(state) ? t('note.dead') : briefing(engine, dict, state)}`,
+        summary: `${ended.account}\n\n${position(state)}`,
+        feedback: `${ended.account}\n${note(state)}`,
       };
     }
 
@@ -675,8 +710,8 @@ export function activate(ctx) {
       const ended = await endFight(doc, state, record, { narrate: false });
       return {
         ok: true,
-        summary: `${ended.account}\n\n${status(engine, dict, state)}`,
-        feedback: `${ended.account}\n${briefing(engine, dict, state)}`,
+        summary: `${ended.account}\n\n${position(state)}`,
+        feedback: `${ended.account}\n${note(state)}`,
       };
     }
 
@@ -772,7 +807,7 @@ export function activate(ctx) {
       // The one screen whose feedback is worth its tokens: the table on screen
       // is drawn for a person and the model is not shown it, so without this it
       // has to guess what is for sale — and it does.
-      feedback: `${t('note.screen', { screen: 'market' })}\n${marketDigest(engine, dict, state)}\n${briefing(engine, dict, state)}`,
+      feedback: note(state, `${t('note.screen', { screen: 'market' })}\n${marketDigest(engine, dict, state)}`),
       choices: held.slice(0, MAX_CHOICES).map((id) => ({
         id: `sellall:${id}`,
         label: t('screen.sellAll', { good: dict.goodName(id) }),
@@ -922,10 +957,10 @@ export function activate(ctx) {
     await save(next);
     return {
       ok: !isWrecked(state),
-      summary: `${told}\n\n${status(engine, dict, state)}`,
+      summary: `${told}\n\n${position(state)}`,
       feedback: opening
         ? openingNote(state, doc.background) + t('note.opening.pressed', { text: told })
-        : `${t('note.moveMade', { text: told })}\n${briefing(engine, dict, state)}`,
+        : `${t('note.moveMade', { text: told })}\n${note(state)}`,
     };
   }
 
@@ -952,7 +987,7 @@ export function activate(ctx) {
     await save(next);
     return {
       ok: true,
-      summary: status(engine, dict, state),
+      summary: position(state),
       feedback: openingNote(state, doc.background),
     };
   }
@@ -967,7 +1002,7 @@ export function activate(ctx) {
     return {
       ok: false,
       summary: reason,
-      feedback: `${t('note.refused', { reason })}\n${briefing(engine, dict, state)}`,
+      feedback: `${t('note.refused', { reason })}\n${note(state)}`,
     };
   }
 
@@ -1068,8 +1103,8 @@ export function activate(ctx) {
         await save({ ...doc, closed: false });
         return {
           ok: true,
-          summary: `${t('ui.resumed')}\n\n${status(engine, dict, state)}`,
-          feedback: `${t('note.resume')}\n${briefing(engine, dict, state)}`,
+          summary: `${t('ui.resumed')}\n\n${position(state)}`,
+          feedback: note(state, t('note.resume')),
         };
       }
 
@@ -1114,8 +1149,8 @@ export function activate(ctx) {
         await save({ ...doc, closed: false });
         return {
           ok: true,
-          summary: `${t('ui.resumed')}\n\n${status(engine, dict, state)}`,
-          feedback: `${t('note.resume')}\n${briefing(engine, dict, state)}`,
+          summary: `${t('ui.resumed')}\n\n${position(state)}`,
+          feedback: note(state, t('note.resume')),
         };
       }
 
@@ -1137,7 +1172,7 @@ export function activate(ctx) {
                 ? shipScreen(state)
                 : patterns('jobs').test(want)
                   ? questScreen(state)
-                  : { summary: status(engine, dict, state) };
+                  : { summary: position(state) };
 
       // Looking costs nothing and changes nothing, but it is a turn the game
       // acted in — which is what claims the panel for this conversation.
@@ -1148,7 +1183,7 @@ export function activate(ctx) {
       // different and more useful answer.
       return {
         ok: true,
-        feedback: `${t('note.screen', { screen: want || 'status' })}\n${briefing(engine, dict, state)}`,
+        feedback: `${t('note.screen', { screen: want || 'status' })}\n${note(state)}`,
         ...screen,
       };
     },
@@ -1271,7 +1306,7 @@ export function activate(ctx) {
         return {
           ok: true,
           summary: `${messages([result.info], dict)}\n\n${market(engine, dict, state)}`,
-          feedback: `${messages([result.info], dict)}\n${briefing(engine, dict, state)}`,
+          feedback: `${messages([result.info], dict)}\n${note(state)}`,
         };
       }
 
@@ -1300,8 +1335,8 @@ export function activate(ctx) {
         const dead = isWrecked(state);
         return {
           ok: !dead,
-          summary: `${done.account}\n\n${dead ? t('ui.dead') : status(engine, dict, state)}`,
-          feedback: `${done.account}\n${dead ? t('note.dead') : briefing(engine, dict, state)}`,
+          summary: `${done.account}\n\n${position(state)}`,
+          feedback: `${done.account}\n${note(state)}`,
         };
       };
 
@@ -1373,8 +1408,8 @@ export function activate(ctx) {
         await save(withGame(doc, state));
         return {
           ok: true,
-          summary: `${messages([result.info], dict)}\n\n${status(engine, dict, state)}`,
-          feedback: `${messages([result.info], dict)}\n${briefing(engine, dict, state)}`,
+          summary: `${messages([result.info], dict)}\n\n${position(state)}`,
+          feedback: `${messages([result.info], dict)}\n${note(state)}`,
         };
       }
 
@@ -1384,8 +1419,8 @@ export function activate(ctx) {
         await save(withGame(doc, state));
         return {
           ok: true,
-          summary: `${messages([result.info], dict)}\n\n${status(engine, dict, state)}`,
-          feedback: `${messages([result.info], dict)}\n${briefing(engine, dict, state)}`,
+          summary: `${messages([result.info], dict)}\n\n${position(state)}`,
+          feedback: `${messages([result.info], dict)}\n${note(state)}`,
         };
       }
 
@@ -1427,7 +1462,7 @@ export function activate(ctx) {
     if (doc.fight && fight.current(doc.fight)) {
       return `${t('note.language')}\n${fight.situation(engine, dict, state, doc.fight)}`;
     }
-    return `${t('note.language')}\n${briefing(engine, dict, state)}`;
+    return `${t('note.language')}\n${note(state)}`;
   });
 
   ctx.prompt(t('prompt.text', { language: t('note.language') }));

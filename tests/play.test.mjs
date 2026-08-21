@@ -653,3 +653,77 @@ test('quest screen formats reward with digits grouping', async () => {
   assert.match(result.summary, /1,500/);
 });
 
+
+/**
+ * The run, with the hull shot out of it.
+ *
+ * A wreck is reachable by playing — a Flea, turn one, and with no panel the
+ * encounters settle themselves — but it happens on about one run in twenty,
+ * and a case that turns up on a twentieth of the runs is a case nobody is
+ * testing. Set directly, because what is under test is what the doors say
+ * afterwards and not how the hull got to zero.
+ */
+function wreck(app) {
+  const state = JSON.parse(app.document.save);
+  state.ship.hull = 0;
+  app.document.save = JSON.stringify(state);
+}
+
+test('a run that is over says so at every door, not only the one it ended at', async () => {
+  /**
+   * Reported from a real game, and the worst answer this plugin has given.
+   *
+   * The commander was killed in a fight fought from the panel, which costs no
+   * turn — so not one line about it was in the conversation. Asked how the
+   * fight had gone, the model answered that Space Trader has no fighting in
+   * it, while the panel behind the answer read LOST. It was not making that
+   * up out of nothing: every door handed it a briefing built from `status` and
+   * `briefing`, neither of which knows a run can end, so a hull of 0/60 was a
+   * number like any other and the systems in range were still being listed for
+   * a ship that no longer existed.
+   */
+  const app = await started();
+  wreck(app);
+
+  for (const door of ['status', 'market', 'chart', 'ship', 'news']) {
+    const result = await app.show(door);
+    assert.match(result.feedback, /the commander is dead/i, `the ${door} screen`);
+    assert.doesNotMatch(result.feedback, /a game is in progress/, `the ${door} screen`);
+    assert.doesNotMatch(result.feedback, /In range:/, `the ${door} screen`);
+  }
+
+  // A refusal comes with the position on purpose, so it is a door like any
+  // other: a model told only that a move failed tries it again, spelled
+  // differently, and on a wrecked run it would keep trying forever.
+  const refused = await app.move('warp nowhere-at-all');
+  assert.equal(refused.ok, false);
+  assert.match(refused.feedback, /the commander is dead/i);
+  assert.doesNotMatch(refused.feedback, /In range:/);
+
+  // Reopening a save that ended is not a briefing. "Give the user a short
+  // briefing ... and then ask what they want to do" is the wrong instruction
+  // to sit above the sentence that says the commander is dead.
+  const resumed = await app.show('resume the game');
+  assert.match(resumed.feedback, /the commander is dead/i);
+  assert.doesNotMatch(resumed.feedback, /then ask what they want to do/);
+  assert.match(resumed.summary, /did not survive/i);
+});
+
+test('the account of a pressed move still reaches the model when it is what ended the run', async () => {
+  const app = await started();
+  wreck(app);
+  /**
+   * What a press leaves behind. The fight was fought on the panel, it cost no
+   * turn, and this is the only place its account exists — dropping it here
+   * would leave the model with a dead commander and no idea what killed him,
+   * which is the position it invented an answer from.
+   */
+  app.document.narrate = 'The pirate opened the hull from end to end.';
+
+  const result = await app.show('status');
+  assert.equal(result.ok, false);
+  assert.match(result.summary, /opened the hull/);
+  assert.match(result.feedback, /opened the hull/, 'the model was left to invent what happened');
+  assert.match(result.feedback, /the commander is dead/i);
+  assert.equal(app.document.narrate, undefined, 'the account would be read out a second time');
+});

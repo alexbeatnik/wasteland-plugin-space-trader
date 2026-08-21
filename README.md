@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.5.0.
+with the model reading the position over your shoulder. Version 2.5.1.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -431,6 +431,34 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 
 `panel.mjs` and `view.mjs` are both pure — a state goes in, a document or a string comes out — and
 both read the same save, which is what stops the screen and the prompt describing two different runs.
+
+---
+
+## What changed in 2.5.1
+
+- **Fixed: a commander could die and the game would then deny there had been a fight.** Reported
+  from a real session, and the worst answer this plugin has given. The fight was fought from the
+  panel, which costs no turn, so not one line of it was in the conversation; asked afterwards how it
+  had gone, the model answered that Space Trader has no fighting in it, while the panel behind the
+  answer read LOST and the hull read 0/60. It was not inventing that out of nothing. Every door
+  built its answer from `status` and `briefing`, and neither of those knows a run can end — a hull
+  of zero is a number like any other to them, and the systems in range were still being listed for a
+  ship that no longer existed. The typed moves had always handled it, each in its own place; the
+  pressed ones went past. It is asked once now, the way `isWrecked` is asked once, and a run that is
+  over says so at every door, whether the move was pressed or typed. Two lines that only make sense
+  mid-run are dropped rather than printed over the ending: the market's price table, and "give the
+  user a short briefing and then ask what they want to do next".
+- **Fixed: the prompt let the model answer the game's own line instead of passing it on.** A press
+  sends a short line so the transcript has one, and the prompt said to hand it to the action "or
+  simply answer" — so it simply answered, from a position several days stale, and the account
+  waiting in the document was never read out. That way out is gone, and the paragraph now says the
+  thing the model had no way to know: the panel moves without it, a fight is fought a round at a
+  time and a commander can die between two of its turns, and none of it reaches the conversation.
+- **The cues that are questions now name the game.** «лети Callisto», "repair", "buy 10 water" read
+  as moves and were always passed along. "How the fight went", "how the day at the workings went"
+  and "resume the game" read as conversation, and all three were answered out of context at least
+  once. They carry the game's name in front of them now, which is the whole of what makes them
+  unanswerable without looking.
 
 ---
 
