@@ -13,8 +13,8 @@
       "kind": "code",
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIgogICAgIHN0cm9rZT0iI2ZmYjAwMCIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJzcXVhcmUiPgogIDwhLS0gQSBjb3Vyc2UgcGxvdHRlZCBiZXR3ZWVuIHR3byBzdGFycyByYXRoZXIgdGhhbiBhIHNoaXA6IHRoZSBhcHAgdGludHMgaWNvbnMKICAgICAgIHRocm91Z2ggaXRzIG93biBwYWxldHRlLCBzbyBvcGVuIHN0cm9rZXMgc3Vydml2ZSB0aGUgZmlsdGVyIGJldHRlciB0aGFuIGEKICAgICAgIGZpbGxlZCBnbHlwaCwgYW5kIGEgaHVsbCBhdCAxLjFyZW0gaXMgYSBibG9iLiBUaGUgZGFzaGVkIGxlZyBpcyB3aGF0IHRoZQogICAgICAgZ2FtZSBpcyBhY3R1YWxseSBhYm91dCDigJQgdGhlIGp1bXAgYmV0d2VlbiB0d28gbWFya2V0cy4gLS0+CiAgPHBhdGggZD0iTTUgMTggTDE5IDYiIHN0cm9rZS1kYXNoYXJyYXk9IjIuNSAyLjUiIC8+CiAgPHBhdGggZD0iTTMgMjBoNHYtNEgzek0xNyA4aDRWNGgtNHoiIC8+CiAgPHBhdGggZD0iTTEzIDE3bDIgMk0xNSAxN2wtMiAyIiAvPgo8L3N2Zz4K",
       "url": "https://github.com/alexbeatnik/wasteland-plugin-space-trader/releases/download/plugins/space-trader-2.4.0.zip",
-      "sha256": "1cf33a9a6dc7cd055fe9f35d635988a7d19cab208966fdbddd313198f460f767",
-      "size": 165446
+      "sha256": "24e1e76f937896a82118d879ffc3360ff0f625f1b1bc063ba982781fd0eb4d9a",
+      "size": 166501
     }
   ]
 }
