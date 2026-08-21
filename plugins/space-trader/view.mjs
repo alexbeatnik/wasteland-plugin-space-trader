@@ -60,6 +60,38 @@ export function economyName(engine, dict, sys) {
 }
 
 /**
+ * What to call a place inside a star system.
+ *
+ * The capital planet is what anybody means by the system's name, so it keeps it
+ * plain; everything else is the system plus a Roman numeral for its orbit, or
+ * the station's trade. The same rule the app's own map follows, deliberately: a
+ * moon that is "Nyle IV" on one screen and "the ice moon" on another is two
+ * places as far as the person reading is concerned.
+ *
+ * Here rather than in `panel.mjs` for the reason `techName` is here: the screen
+ * and the panel have to call a place the same thing, and two copies of a naming
+ * rule are two places for it to drift.
+ */
+export function bodyName(dict, sys, body) {
+  if (!body || body.kind === 'planet') return sys.nameId;
+  if (body.kind === 'station') return `${sys.nameId} ${dict.stationShortName(body.station ?? 'science')}`;
+  return `${sys.nameId} ${dict.orbitNumeral(body.orbit)}`;
+}
+
+/** What a place *is*: the capital, a station's trade, or the rock it is. */
+export function bodyKind(dict, body) {
+  if (!body || body.kind === 'planet') return dict.t('body.capital');
+  if (body.kind === 'station') return dict.stationName(body.station ?? 'science');
+  return dict.terrainName(body.terrain ?? 'rockyMoon');
+}
+
+/** What comes out of a site, named the way the market names it. */
+export function siteYield(dict, site) {
+  if (!site) return '';
+  return site.resource === 'fuel' ? t('system.fuel') : dict.goodName(site.resource);
+}
+
+/**
  * The local starfield.
  *
  * The neighbourhood rather than the galaxy, because the chart is a decision —
@@ -138,6 +170,37 @@ export function destinations(engine, state, limit = 8) {
 }
 
 /**
+ * Everywhere in this system, printed.
+ *
+ * A list rather than a drawing, and that is not laziness. The star chart is a
+ * field of stars where the *positions* are the information — which way, how
+ * far — and forty-four columns of characters can carry that. A solar system is
+ * four or five places on rings around one star, where the position tells you
+ * almost nothing and what matters is what is on each one: days out, a yard, a
+ * seam of ore. Drawn at this size it would be four dots and a smudge; written
+ * out it is a decision.
+ *
+ * The panel draws the rings, where there are pixels to do it with.
+ */
+export function bodies(engine, dict, state) {
+  const sys = engine.currentSystem(state);
+  const here = engine.currentBodyIndex(state);
+  const rows = [];
+  for (const body of engine.systemBodies(sys)) {
+    const site = engine.bodyMineSite(sys, body);
+    const what = [bodyKind(dict, body)];
+    if (site) what.push(t('screen.system.yields', { resource: siteYield(dict, site) }));
+    rows.push(
+      `  ${pad(bodyName(dict, sys, body), 16)} ${pad(
+        body.id === here ? t('screen.system.here') : t('screen.system.days', { n: engine.transitDaysTo(state, body.id) }),
+        14,
+      )} ${what.join(', ')}`,
+    );
+  }
+  return rows.join('\n');
+}
+
+/**
  * The market, as the table the game shows.
  *
  * Prices the planet does not offer are left blank rather than zeroed: a zero in
@@ -194,6 +257,15 @@ export function status(engine, dict, state) {
       politics: dict.politicsName(sys.politics),
     }),
     sys.status && sys.status !== 'uneventful' ? t('screen.status.situation', { situation: dict.statusName(sys.status) }) : '',
+    engine.hasSpaceport(state)
+      ? ''
+      : t('screen.status.away', {
+        place: bodyName(dict, sys, engine.currentBody(state)),
+        kind: bodyKind(dict, engine.currentBody(state)),
+      }),
+    engine.currentMineSite(state)
+      ? t('screen.status.mine', { resource: siteYield(dict, engine.currentMineSite(state)) })
+      : '',
     '',
     `${pad(dict.shipName(ship.type), 14)} ${pad(t('screen.status.hull'), 5)} ${meter(ship.hull, hull)} ${ship.hull}/${hull}`,
     `${pad(t('screen.status.fuel'), 14)}       ${meter(ship.fuel, fuel)} ${t('screen.status.parsecs', { fuel: ship.fuel, max: fuel })}`,
@@ -280,6 +352,20 @@ export function briefing(engine, dict, state) {
     .map((d) => `${d.sys.nameId} (${d.wormhole ? t('brief.wormhole') : d.fuel})`)
     .join(', ');
 
+  /**
+   * Where in the system, and what is under the ship — when there is anything
+   * to say about either.
+   *
+   * Both lines are silent for a run sitting on the capital's landing field with
+   * nothing to dig, which is most turns of most runs, so the ordinary game pays
+   * nothing for them. They are not optional when they are true: a model that
+   * does not know the ship is four days out on a belt advises on a market that
+   * is not there, and one that does not know the belt is a belt never mentions
+   * the ore the hold could be filling with.
+   */
+  const body = engine.currentBody(state);
+  const site = engine.currentMineSite(state);
+
   return [
     t('brief.head'),
     state.debt
@@ -291,6 +377,15 @@ export function briefing(engine, dict, state) {
       economy: economyName(engine, dict, sys),
       politics: dict.politicsName(sys.politics),
     }),
+    engine.hasSpaceport(state)
+      ? ''
+      : t('brief.away', {
+        place: bodyName(dict, sys, body),
+        kind: bodyKind(dict, body),
+        system: sys.nameId,
+        n: engine.transitDaysTo(state, 0),
+      }),
+    site ? t('brief.mine', { resource: siteYield(dict, site) }) : '',
     t('brief.ship', {
       ship: dict.shipName(ship.type),
       hull: ship.hull,
@@ -302,7 +397,7 @@ export function briefing(engine, dict, state) {
     }),
     cargo ? t('brief.carrying', { cargo }) : t('brief.empty'),
     inRange ? t('brief.inRange', { systems: inRange }) : t('brief.stranded'),
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 /**

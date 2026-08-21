@@ -191,6 +191,119 @@ test('the chart draws a field and offers every target as a button', async () => 
   }
 });
 
+/**
+ * A belt with ore in it, written into the save.
+ *
+ * The same fixture the panel tests use and for the same reason: what a system
+ * holds is rolled with the rest of the galaxy, and a test that waited for a
+ * seam would pass on most runs rather than on all of them.
+ */
+function withBelt(app) {
+  const state = JSON.parse(app.document.save);
+  const sys = state.systems[state.currentSystem];
+  sys.mineSite = null;
+  sys.starClass = sys.starClass ?? 'yellow';
+  sys.bodies = [
+    { id: 0, kind: 'planet', orbit: 1, angle: 0, mineSite: null },
+    {
+      id: 1,
+      kind: 'barren',
+      orbit: 4,
+      angle: 0.3,
+      terrain: 'asteroidBelt',
+      mineSite: { kind: 'asteroidField', resource: 'ore', richness: 12 },
+    },
+  ];
+  state.currentBody = 0;
+  app.document.save = JSON.stringify(state);
+  return state;
+}
+
+test('the system screen lists everywhere in the system, and offers the crossing', async () => {
+  const app = await started();
+  withBelt(app);
+
+  const result = await app.show('system');
+  assert.equal(result.ok, true);
+  assert.match(result.summary, /SYSTEM — /);
+  // Written out rather than drawn: what is on a body is the information, and
+  // four dots on a ring at this width would carry none of it.
+  assert.match(result.summary, /Asteroid belt/i);
+  assert.match(result.summary, /ore/i);
+  assert.match(result.summary, /impulse/i);
+
+  const crossing = result.choices.find((choice) => choice.id === 'body:1');
+  assert.ok(crossing, 'nothing offered to cross to the belt');
+  assert.match(crossing.note, /day/);
+});
+
+test('crossing to a body spends days and no fuel, and can be typed', async () => {
+  const app = await started();
+  const before = withBelt(app);
+
+  const crossed = await app.move('cross to the asteroid belt');
+  // With no panel the encounters settle themselves, and one of them can end a
+  // run — the same allowance the jump above makes.
+  assert.ok(crossed.ok || /did not survive/i.test(crossed.summary), crossed.summary);
+  const after = JSON.parse(app.document.save);
+  if (!crossed.ok) return;
+  assert.equal(after.currentBody, 1);
+  // See the note on the same assertion in tests/panel.test.mjs: the drive is
+  // free, the day is not always.
+  assert.ok(
+    after.ship.fuel === before.ship.fuel || /pc of fuel/i.test(crossed.summary),
+    'the impulse drive burned fuel',
+  );
+  assert.ok(after.day > before.day);
+});
+
+test('mining is refused where there is nothing, and is a day of work where there is', async () => {
+  const app = await started();
+  const state = withBelt(app);
+
+  // Docked at the planet, which this fixture leaves without workings.
+  const refused = await app.move('mine');
+  assert.equal(refused.ok, false);
+  assert.match(refused.summary, /nothing to mine/i);
+
+  state.currentBody = 1;
+  app.document.save = JSON.stringify(state);
+  const dug = await app.move('mine');
+  assert.ok(dug.ok || /did not survive/i.test(dug.summary), dug.summary);
+  if (!dug.ok) return;
+  const after = JSON.parse(app.document.save);
+  assert.ok((after.ship.cargo.ore ?? 0) > 0, 'nothing came out of the rock');
+  assert.ok(after.day > state.day, 'a day at the workings took no day');
+  assert.match(dug.summary, /workings/i);
+});
+
+test('"fly to" a place in this system crosses it rather than being refused', async () => {
+  const app = await started();
+  const before = withBelt(app);
+  const sys = before.systems[before.currentSystem];
+
+  // `fly` is a warp verb and always has been. The name is not a system, so it
+  // is looked for where the ship is standing before anything is refused.
+  const crossed = await app.move(`fly to ${sys.nameId} IV`);
+  assert.ok(crossed.ok || /did not survive/i.test(crossed.summary), crossed.summary);
+  if (!crossed.ok) return;
+  assert.equal(JSON.parse(app.document.save).currentBody, 1);
+});
+
+test('the briefing says where in the system the ship is, and what is under it', async () => {
+  const app = await started();
+  const state = withBelt(app);
+  state.currentBody = 1;
+  app.document.save = JSON.stringify(state);
+
+  const briefing = await app.context();
+  // Both facts change what the model should advise, and neither is guessable
+  // from a position line that names only the system.
+  assert.match(briefing, /Away from the spaceport/i);
+  assert.match(briefing, /no market, bank or job board/i);
+  assert.match(briefing, /Mineable/i);
+});
+
 test('a chart is drawn as a box of the width it claims', async () => {
   const app = await started();
   const result = await app.show('chart');
@@ -372,9 +485,11 @@ test('refuelling a full tank is refused without spending anything', async () => 
 
 test('a move nobody has heard of names the moves that exist', async () => {
   const app = await started();
-  const result = await app.move('mine the asteroid belt');
+  // This used to be "mine the asteroid belt", which was a fair example of a
+  // move nobody had heard of until the belts became somewhere to fly to.
+  const result = await app.move('polish the hull');
   assert.equal(result.ok, false);
-  assert.match(result.summary, /buy, sell, warp, refuel and repair/);
+  assert.match(result.summary, /buy, sell, warp, cross, mine, refuel and repair/);
 });
 
 test('the per-turn context is empty until a game exists, and terse afterwards', async () => {

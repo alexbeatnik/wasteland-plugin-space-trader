@@ -39,6 +39,9 @@ import {
 import * as saves from './saves.mjs';
 import { credits as money, group as digits, patterns, setLanguage, t } from './words.mjs';
 import {
+  bodies,
+  bodyKind,
+  bodyName,
   briefing,
   chart,
   destinations,
@@ -46,6 +49,7 @@ import {
   marketDigest,
   messages,
   openingBrief,
+  siteYield,
   status,
 } from './view.mjs';
 
@@ -112,6 +116,15 @@ const FIGHT_WORDS = [
  */
 let sheetView = 'market';
 let armedRestart = false;
+/**
+ * Which map the board is drawing: the galaxy, or the system the ship is in.
+ *
+ * One board and two maps, so they take turns on it. Module scope for the same
+ * reason the sheet is: it is where the player last looked. It goes back to the
+ * chart on a jump, because arriving somewhere new is a question about the
+ * galaxy — and because the system under the ship is a different system now.
+ */
+let boardView = 'chart';
 /**
  * The trade waiting for a number.
  *
@@ -189,7 +202,19 @@ export function activate(ctx) {
     const doc = await ctx.state.get();
     if (!doc?.save) return null;
     try {
-      return JSON.parse(doc.save);
+      const state = JSON.parse(doc.save);
+      /**
+       * Star systems, for a save written before there were any.
+       *
+       * The engine's own migration, and it has to be called by whoever loads a
+       * game — nothing inside the engine calls it. A run saved by an older
+       * build has systems with no bodies and no star, and every question about
+       * where the ship is docked would answer "the capital" forever: the map
+       * would draw one planet and mining would never find a seam. It is a
+       * no-op the moment they are there, which is every save written since.
+       */
+      engine.ensureBodies(state.seed, state.systems ?? []);
+      return state;
     } catch (err) {
       ctx.log(`the saved game could not be read — ${err.message}`);
       return null;
@@ -304,6 +329,7 @@ export function activate(ctx) {
     const art = pictures();
     scene.show(snapshot(engine, dict, state, {
       sheetView,
+      boardView,
       armedRestart,
       image: art.chart,
       pictures: art.goods,
@@ -342,6 +368,35 @@ export function activate(ctx) {
     return (
       all.find((sys) => sys.nameId.toLowerCase() === wanted) ??
       all.find((sys) => sys.nameId.toLowerCase().startsWith(wanted)) ??
+      null
+    );
+  }
+
+  /**
+   * A place inside this system, by whatever the player called it.
+   *
+   * Three vocabularies reach the same rock and all three are on the screen it
+   * was read off: what it is called ("Nyle IV"), the numeral alone ("IV"), and
+   * what it is ("ice moon", "the belt", "research"). Matched in that order,
+   * because a name is exact and a kind is a guess — and there can be two ice
+   * moons in one system, where the first one found is as good an answer as any
+   * and better than a refusal.
+   */
+  function findBody(state, text) {
+    // "cross to the ice moon" is how a person says it, and the article is not
+    // part of anything's name.
+    const wanted = text.trim().toLowerCase().replace(/^(the|a)\s+/, '');
+    if (!wanted) return null;
+    const sys = engine.currentSystem(state);
+    const list = engine.systemBodies(sys);
+    const named = (body) => bodyName(dict, sys, body).toLowerCase();
+    const kind = (body) => bodyKind(dict, body).toLowerCase();
+    return (
+      list.find((body) => named(body) === wanted) ??
+      list.find((body) => named(body).endsWith(` ${wanted}`)) ??
+      list.find((body) => named(body).startsWith(wanted)) ??
+      list.find((body) => kind(body) === wanted) ??
+      list.find((body) => kind(body).includes(wanted)) ??
       null
     );
   }
@@ -398,13 +453,91 @@ export function activate(ctx) {
     return { encounters, arrival: { system: system.nameId, notes, met: encounters.length } };
   }
 
-  /** Where the ship ended up, in the one line a status bar can hold. */
+  /**
+   * A crossing inside the system, up to the point where somebody intercepts it.
+   *
+   * The same shape as a jump, deliberately: the engine moves the ship, spends
+   * the days, rolls for what is met on the way and leaves the encounters
+   * ongoing. What differs is the price. A warp drive is dead weight this deep
+   * in a star's gravity well, so this runs on impulse — no fuel at all, and
+   * days on the calendar instead, which is wages, interest and whatever a tired
+   * crew does to a ship.
+   *
+   * The seed is the app's own, constant for constant. A save crossed here and
+   * crossed there should meet the same people on the way: two front ends over
+   * one engine is only an honest claim while the dice agree.
+   */
+  function beginTransit(state, bodyId) {
+    const sys = engine.currentSystem(state);
+    const rng = new engine.Rng((state.seed ^ (state.day * 2246822519) ^ ((bodyId + 1) * 40503)) >>> 0);
+    const result = engine.travelToBody(state, bodyId, rng);
+    if (!result.ok) throw new Error(dict.t(result.error) || t('refuse.crossingRefused'));
+    const notes = [];
+    if (result.incident) notes.push(dict.renderMessage(result.incident.bodyKey, result.incident.params));
+    const encounters = result.encounters ?? [];
+    return {
+      encounters,
+      arrival: {
+        system: bodyName(dict, sys, engine.currentBody(state)),
+        notes,
+        met: encounters.length,
+        key: encounters.length ? 'screen.dockedMet' : 'screen.docked',
+        params: { n: result.days ?? 0 },
+      },
+    };
+  }
+
+  /**
+   * A day's work at the site under the ship, up to the raid.
+   *
+   * One press, one day, one unit — two for an industrial hull, which is what
+   * those holds are for — and in a belt the occasional gem on top of it. The
+   * site is read before the engine runs, because what came out is named in the
+   * line afterwards and the ship may have been moved on by then.
+   *
+   * A mining ship is a stationary ship with its hold filling up, and the engine
+   * prices that: roughly one operation in eight is jumped by raiders, and that
+   * encounter goes into the same record a jump's does.
+   */
+  function beginMining(state) {
+    const sys = engine.currentSystem(state);
+    const site = engine.currentMineSite(state);
+    const rng = new engine.Rng((state.seed ^ (state.day * 2654435761)) >>> 0);
+    const result = engine.mineOnce(state, rng);
+    if (!result.ok) throw new Error(dict.t(result.error) || t('refuse.nothingToMine'));
+    const notes = [];
+    if (result.incident) notes.push(dict.renderMessage(result.incident.bodyKey, result.incident.params));
+    if (result.bonus) notes.push(t('screen.minedBonus', { good: dict.goodName(result.bonus) }));
+    const encounters = result.encounter ? [result.encounter] : [];
+    return {
+      encounters,
+      arrival: {
+        system: bodyName(dict, sys, engine.currentBody(state)),
+        notes,
+        met: encounters.length,
+        key: encounters.length ? 'screen.minedRaid' : 'screen.mined',
+        params: { amount: result.amount ?? 0, resource: siteYield(dict, site) },
+      },
+    };
+  }
+
+  /**
+   * Where the ship ended up, in the one line a status bar can hold.
+   *
+   * A leg names its own words. Arriving, docking after four days on impulse and
+   * coming up with three units of ore are three different things that all end
+   * with the same two facts — what is left in the tank, and what is left of the
+   * hull — and a line that called all three "arrived at" would be describing
+   * the machinery rather than what happened.
+   */
   function arrivedLine(state, arrival) {
-    return t(arrival.met ? 'screen.arrivedMet' : 'screen.arrived', {
+    const key = arrival.key ?? (arrival.met ? 'screen.arrivedMet' : 'screen.arrived');
+    return t(key, {
       system: arrival.system,
       met: arrival.met,
       fuel: state.ship.fuel,
       hull: state.ship.hull,
+      ...(arrival.params ?? {}),
     });
   }
 
@@ -430,16 +563,21 @@ export function activate(ctx) {
   }
 
   /**
-   * A jump, and whatever it ran into.
+   * A leg, and whatever it ran into.
    *
    * With a panel, an interception stops here: the record goes into the document
    * and the player fights it a round at a time. Without one there is nothing to
    * press, so the older behaviour stands and the whole exchange resolves under
    * the posture from the settings — a fight fought by typing would be a model
    * turn per round.
+   *
+   * A leg is a jump between stars, a crossing between bodies, or a day at a
+   * seam. Three things happen out there and one of them is being shot at, so
+   * they answer through one function rather than three copies of it: the last
+   * two were added by writing what they *are* — encounters and an arrival — and
+   * handing them here.
    */
-  async function travel(doc, state, target) {
-    const { encounters, arrival } = beginJump(state, target);
+  async function leg(doc, state, { encounters, arrival }) {
     const record = fight.open(dict, encounters, arrival);
 
     if (scene && fight.current(record) && !isWrecked(state)) {
@@ -460,6 +598,26 @@ export function activate(ctx) {
     resolveAll(state, record);
     return { fighting: false, line: arrivedLine(state, arrival), account: jumpAccount(state, record) };
   }
+
+  /**
+   * The three legs, by name. Each one is what happened, handed to `leg`.
+   *
+   * The board follows the ship, and it is set here rather than at the six
+   * places that press these: arriving in a new system is a question about the
+   * galaxy, and crossing to a moon is a question about the system. Set after
+   * the engine has agreed to the move, so a refused one leaves the map alone.
+   */
+  const travel = async (doc, state, target) => {
+    const done = await leg(doc, state, beginJump(state, target));
+    boardView = 'chart';
+    return done;
+  };
+  const crossTo = async (doc, state, bodyId) => {
+    const done = await leg(doc, state, beginTransit(state, bodyId));
+    boardView = 'system';
+    return done;
+  };
+  const dig = (doc, state) => leg(doc, state, beginMining(state));
 
   /**
    * The shooting is over: the arrival goes into the transcript and the panel
@@ -567,6 +725,45 @@ export function activate(ctx) {
     };
   }
 
+  /**
+   * The system, printed: where the ship is docked and everywhere else it could.
+   *
+   * The chart's smaller sibling, and the same shape — a drawing, then the list,
+   * then a button per place — because they answer the same question about two
+   * scales of distance. What a row costs is days rather than fuel: the impulse
+   * drive burns nothing and the calendar pays for it, which is a different
+   * thing to weigh and the reason the column says so.
+   */
+  function systemScreen(state) {
+    const sys = engine.currentSystem(state);
+    const here = engine.currentBodyIndex(state);
+    const site = engine.currentMineSite(state);
+    const targets = engine.systemBodies(sys).filter((body) => body.id !== here);
+    const lines = [
+      t('screen.system.head', { system: sys.nameId, star: dict.starClassName(sys.starClass ?? 'yellow') }),
+      '',
+      bodies(engine, dict, state),
+      '',
+      // The rule the whole screen exists under, said once rather than repeated
+      // on every row: nothing here costs fuel and everything here costs days.
+      t('screen.system.impulse'),
+    ];
+
+    const choices = targets.slice(0, MAX_CHOICES).map((body) => ({
+      id: `body:${body.id}`,
+      label: t('screen.system.fly', { place: bodyName(dict, sys, body) }),
+      note: t('screen.system.days', { n: engine.transitDaysTo(state, body.id) }),
+    }));
+    if (site) {
+      choices.unshift({
+        id: 'mine:here',
+        label: t('screen.system.mine'),
+        note: t('screen.system.yields', { resource: siteYield(dict, site) }),
+      });
+    }
+    return { summary: lines.join('\n'), choices };
+  }
+
   function marketScreen(state) {
     const sys = engine.currentSystem(state);
     const held = engine.GOOD_IDS.filter((id) => (state.ship.cargo?.[id] ?? 0) > 0 && (sys.sellPrice?.[id] ?? 0) > 0);
@@ -651,6 +848,7 @@ export function activate(ctx) {
      * the visible half of that.
      */
     sheetView = 'market';
+    boardView = 'chart';
     deckOpen = false;
     askingAmount = null;
     armedRestart = false;
@@ -921,17 +1119,25 @@ export function activate(ctx) {
         };
       }
 
+      // Asked for a map, the panel changes to the one that was asked for. The
+      // screen and the board are two drawings of one answer, and a player who
+      // typed "system" and got the star chart beside it has been given two.
+      if (patterns('system').test(want)) boardView = 'system';
+      else if (patterns('chart').test(want)) boardView = 'chart';
+
       const screen = patterns('market').test(want)
         ? marketScreen(state)
-        : patterns('chart').test(want)
-          ? chartScreen(state)
-          : patterns('news').test(want)
-            ? newsScreen(state)
-            : patterns('ship').test(want)
-              ? shipScreen(state)
-              : patterns('jobs').test(want)
-                ? questScreen(state)
-                : { summary: status(engine, dict, state) };
+        : patterns('system').test(want)
+          ? systemScreen(state)
+          : patterns('chart').test(want)
+            ? chartScreen(state)
+            : patterns('news').test(want)
+              ? newsScreen(state)
+              : patterns('ship').test(want)
+                ? shipScreen(state)
+                : patterns('jobs').test(want)
+                  ? questScreen(state)
+                  : { summary: status(engine, dict, state) };
 
       // Looking costs nothing and changes nothing, but it is a turn the game
       // acted in — which is what claims the panel for this conversation.
@@ -980,6 +1186,22 @@ export function activate(ctx) {
         const jumped = await travel(doc, state, target);
         if (!jumped.fighting) await save(withGame(doc, state));
         return jumped.line;
+      }
+
+      if (what === 'body') {
+        const bodies = engine.systemBodies(engine.currentSystem(state));
+        const target = bodies[Number(argument)];
+        if (!target || target.id === engine.currentBodyIndex(state)) throw new Error(t('ui.noRouteThere'));
+        const crossed = await crossTo(doc, state, target.id);
+        if (!crossed.fighting) await save(withGame(doc, state));
+        return crossed.line;
+      }
+
+      if (what === 'mine') {
+        if (!engine.currentMineSite(state)) throw new Error(t('refuse.nothingToMine'));
+        const dug = await dig(doc, state);
+        if (!dug.fighting) await save(withGame(doc, state));
+        return dug.line;
       }
 
       throw new Error('that button belongs to an older game');
@@ -1053,30 +1275,24 @@ export function activate(ctx) {
         };
       }
 
-      /* --- moving --- */
-      if (patterns('warp').test(move)) {
-        const target = findSystem(state, rest.replace(/^to\s+/i, ''));
-        if (!target) return refuse(state, t('refuse.noSystem', { what: rest }));
-        let jumped;
-        try {
-          jumped = await travel(doc, state, target);
-        } catch (err) {
-          return refuse(state, err.message);
-        }
-        /**
-         * Intercepted.
-         *
-         * The jump is a move like any other and it ends here: the panel now
-         * holds a fight, and the fight is the player's to fight. The model is
-         * told in as many words not to narrate its outcome, because a model
-         * that has just read "a pirate closes in" will otherwise write the
-         * whole gunfight — and then the panel and the story are two different
-         * games.
-         */
-        if (jumped.fighting) {
+      /**
+       * What a leg answers with, whichever leg it was.
+       *
+       * Intercepted, the move ends here: the panel now holds a fight, and the
+       * fight is the player's to fight. The model is told in as many words not
+       * to narrate its outcome, because a model that has just read "a pirate
+       * closes in" will otherwise write the whole gunfight — and then the panel
+       * and the story are two different games.
+       *
+       * Not intercepted, the day is over and the position goes back. Raiders
+       * jump a mining operation as readily as a shipping lane, which is why
+       * this is one answer and not three.
+       */
+      const legReply = async (done) => {
+        if (done.fighting) {
           return {
             ok: true,
-            summary: `${jumped.account}\n\n${jumped.line}`,
+            summary: `${done.account}\n\n${done.line}`,
             feedback: `${t('note.fightStarted')}\n${fight.situation(engine, dict, state, (await ctx.state.get()).fight)}`,
           };
         }
@@ -1084,9 +1300,68 @@ export function activate(ctx) {
         const dead = isWrecked(state);
         return {
           ok: !dead,
-          summary: `${jumped.account}\n\n${dead ? t('ui.dead') : status(engine, dict, state)}`,
-          feedback: `${jumped.account}\n${dead ? t('note.dead') : briefing(engine, dict, state)}`,
+          summary: `${done.account}\n\n${dead ? t('ui.dead') : status(engine, dict, state)}`,
+          feedback: `${done.account}\n${dead ? t('note.dead') : briefing(engine, dict, state)}`,
         };
+      };
+
+      /* --- moving --- */
+      if (patterns('warp').test(move)) {
+        const where = rest.replace(/^to\s+/i, '');
+        const target = findSystem(state, where);
+        /**
+         * "fly to Nyle IV" is not a jump, and the words are the same.
+         *
+         * `fly` and `go` have always been warp verbs, and now half the places
+         * worth naming are inside the system the ship is already in. Rather
+         * than teach the player which verb reaches which kind of place — a
+         * distinction the game does not otherwise make — a name that is not a
+         * system is looked for where the ship is standing before it is refused.
+         */
+        if (!target) {
+          const body = findBody(state, where);
+          if (body && body.id !== engine.currentBodyIndex(state)) {
+            try {
+              return await legReply(await crossTo(doc, state, body.id));
+            } catch (err) {
+              return refuse(state, err.message);
+            }
+          }
+          return refuse(state, t('refuse.noSystem', { what: rest }));
+        }
+        try {
+          return await legReply(await travel(doc, state, target));
+        } catch (err) {
+          return refuse(state, err.message);
+        }
+      }
+
+      /**
+       * Crossing the system, which is not a jump and must not read like one.
+       *
+       * Typed as "fly to Nyle IV" or "dock at the belt". The place is found by
+       * what it is called on the map and by what it is — a player who has read
+       * "ice moon" on the screen should be able to say "ice moon" back.
+       */
+      if (patterns('flyTo').test(move)) {
+        const target = findBody(state, rest.replace(/^(to|at)\s+/i, ''));
+        if (!target) return refuse(state, t('refuse.noBody', { what: rest }));
+        if (target.id === engine.currentBodyIndex(state)) return refuse(state, t('refuse.alreadyThere'));
+        try {
+          return await legReply(await crossTo(doc, state, target.id));
+        } catch (err) {
+          return refuse(state, err.message);
+        }
+      }
+
+      /* --- a day at the seam --- */
+      if (patterns('mine').test(move)) {
+        if (!engine.currentMineSite(state)) return refuse(state, t('refuse.nothingToMine'));
+        try {
+          return await legReply(await dig(doc, state));
+        } catch (err) {
+          return refuse(state, err.message);
+        }
       }
 
       /* --- the two things a planet does for a ship --- */
@@ -1685,9 +1960,17 @@ export function activate(ctx) {
         await paint(doc);
         return { sheet: true };
       }
-      if (actionId === 'chart') {
+      /**
+       * The two maps, on the one board.
+       *
+       * Free, like every other look: the board changes and nothing is sent to
+       * the model. `{board: true}` opens it if it was shut, which is what makes
+       * this one key both a toggle and a way in.
+       */
+      if (actionId === 'chart' || actionId === 'system') {
         askingAmount = null;
         deckOpen = false;
+        boardView = actionId === 'system' ? 'system' : 'chart';
         await paint(doc);
         return { board: true };
       }
@@ -1804,6 +2087,62 @@ export function activate(ctx) {
         if (jumped.fighting) return { status: jumped.line };
         await save(withGame(doc, state, { narrate: jumped.account }));
         return { status: jumped.line, submit: t('move.warp.submit', { system: target.nameId }) };
+      }
+
+      /**
+       * A place in this system, pressed on the map.
+       *
+       * The impulse run, and the only thing it has in common with a jump is
+       * that somebody may be out there. It costs days rather than fuel, so
+       * there is nothing to check against the tank — only that the ship is not
+       * being told to fly to where it already is.
+       */
+      if (actionId.startsWith('fly-')) {
+        deckOpen = false;
+        const bodies = engine.systemBodies(engine.currentSystem(state));
+        const target = bodies[Number(actionId.slice('fly-'.length))];
+        if (!target || target.id === engine.currentBodyIndex(state)) {
+          await paint(doc);
+          return { status: t('ui.noRouteThere') };
+        }
+        const place = bodyName(dict, engine.currentSystem(state), target);
+        let crossed;
+        try {
+          crossed = await crossTo(doc, state, target.id);
+        } catch (err) {
+          await paint(doc);
+          return { status: err.message };
+        }
+        if (crossed.fighting) return { status: crossed.line };
+        await save(withGame(doc, state, { narrate: crossed.account }));
+        return { status: crossed.line, submit: t('move.fly.submit', { place }) };
+      }
+
+      /**
+       * A day at the seam, pressed on the body the ship is docked at.
+       *
+       * One press is one day and one unit, which is the shape the whole panel
+       * is in: the engine settles it, the status bar carries what came up, and
+       * the model is told once at the end rather than once a unit. Raiders end
+       * the day the same way they end a jump — the fight is on the panel and
+       * nothing is submitted until it is over.
+       */
+      if (actionId === 'mine') {
+        deckOpen = false;
+        if (!engine.currentMineSite(state)) {
+          await paint(doc);
+          return { status: t('refuse.nothingToMine') };
+        }
+        let dug;
+        try {
+          dug = await dig(doc, state);
+        } catch (err) {
+          await paint(doc);
+          return { status: err.message };
+        }
+        if (dug.fighting) return { status: dug.line };
+        await save(withGame(doc, state, { narrate: dug.account }));
+        return { status: dug.line, submit: t('move.mine.submit') };
       }
 
       if (actionId === 'refuel' || actionId === 'repair') {

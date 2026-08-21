@@ -108,6 +108,33 @@ async function flying(options = {}) {
   return app;
 }
 
+/**
+ * A belt with ore in it, two orbits out from the planet.
+ *
+ * Written into the save rather than hunted for in the galaxy: a system's bodies
+ * are rolled with everything else, so a test that waited for one with a seam in
+ * it would be a test that passes on most runs. What is being checked is what
+ * the panel does with a belt, not how often the engine deals one.
+ */
+function withBelt(state) {
+  const sys = state.systems[state.currentSystem];
+  sys.mineSite = null;
+  sys.starClass = sys.starClass ?? 'yellow';
+  sys.bodies = [
+    { id: 0, kind: 'planet', orbit: 1, angle: 0, mineSite: null },
+    {
+      id: 1,
+      kind: 'barren',
+      orbit: 4,
+      angle: 0.3,
+      terrain: 'asteroidBelt',
+      mineSite: { kind: 'asteroidField', resource: 'ore', richness: 12 },
+    },
+  ];
+  state.currentBody = 0;
+  return state;
+}
+
 /** The first row in a group, or nothing. */
 function rowIn(app, label) {
   return app.drawn.groups.find((group) => group.label === label)?.items ?? [];
@@ -212,7 +239,9 @@ test('every accent is one the app has a colour for', async () => {
 test('the row of moves is what can be done from here, and nothing else', async () => {
   const app = await flying();
   const ids = app.drawn.actions.map((move) => move.id);
-  assert.deepEqual(ids, ['market', 'chart', 'ship', 'jobs', 'news', 'restart', 'quit']);
+  // SYSTEM rather than CHART: one key for both maps, labelled with the one it
+  // will show, and a run opens on the star chart.
+  assert.deepEqual(ids, ['market', 'system', 'ship', 'jobs', 'news', 'restart', 'quit']);
   // A full tank has nothing to refuel, and a button that answers "the tank is
   // already full" is a button that should not have been drawn.
   assert.ok(!ids.includes('refuel'));
@@ -347,13 +376,15 @@ test('the chart is a board, and only what the tank reaches is pressable', async 
   assert.ok(board.points.length <= 24, 'the board is over the host\'s ceiling');
   const here = board.points.find((point) => point.here);
   assert.equal(here.label, state.systems[state.currentSystem].nameId);
-  assert.equal(here.action, '', 'the system you are in is offered as a destination');
+  // Pressable, but not as a destination: pressing where you already are is the
+  // way into the system map rather than a jump to nowhere.
+  assert.equal(here.action, 'system');
   assert.equal(here.x, 50);
   assert.equal(here.y, 50);
 
   for (const point of board.points) {
     assert.ok(point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100, 'a marker is off the board');
-    if (point.action) assert.match(point.action, /^warp-\d+$/);
+    if (point.action) assert.match(point.action, /^(warp-\d+|system)$/);
   }
   // A road to nowhere is a line drawn off the edge.
   const ids = new Set(board.points.map((point) => point.id));
@@ -399,7 +430,7 @@ test('the chart keeps its stars when the tank runs dry, and offers none of them'
 test('pressing a system makes the jump, and the panel moves with the ship', async () => {
   const app = await flying();
   const before = app.game;
-  const target = app.drawn.board.points.find((point) => point.action);
+  const target = app.drawn.board.points.find((point) => point.action.startsWith('warp-'));
 
   const jumped = await app.act(target.action);
   const after = app.game;
@@ -422,13 +453,127 @@ test('pressing a system makes the jump, and the panel moves with the ship', asyn
 test('a system the run has since flown out of range of is refused, not obeyed', async () => {
   const app = await flying();
   const state = app.game;
-  const target = app.drawn.board.points.find((point) => point.action);
+  const target = app.drawn.board.points.find((point) => point.action.startsWith('warp-'));
   state.ship.fuel = 0;
   app.rewrite(state);
 
   const answered = await app.act(target.action);
   assert.match(answered.status, /will not reach/i);
   assert.equal(app.game.currentSystem, state.currentSystem);
+});
+
+/**
+ * The system map, which is the other half of one board.
+ *
+ * The host draws one, so the star chart and the system take turns on it and the
+ * row carries a single key labelled with whichever is not up. Everything here
+ * is pressable — the impulse drive costs days rather than fuel, so there is no
+ * equivalent of "out of range" inside a system — except the body the ship is
+ * already at, which carries the mining instead.
+ */
+test('the board carries two maps, and the system is the other one', async () => {
+  const app = await flying();
+  app.rewrite(withBelt(app.game));
+
+  const opened = await app.act('system');
+  assert.equal(opened.board, true);
+  const board = app.drawn.board;
+
+  const star = board.points.find((point) => point.id === 'star');
+  assert.ok(star, 'the system was drawn without its star');
+  assert.equal(star.x, 50);
+  assert.equal(star.y, 50);
+  assert.equal(board.points.filter((point) => point.id.startsWith('body-')).length, 2);
+
+  const here = board.points.find((point) => point.here);
+  assert.equal(here.id, 'body-0');
+  assert.equal(here.action, '', 'standing still was offered as a course');
+  const belt = board.points.find((point) => point.id === 'body-1');
+  assert.equal(belt.action, 'fly-1');
+  assert.match(belt.note, /day/);
+  assert.match(belt.note, /ore/i, 'the belt does not say what is in it');
+
+  // And the row now offers the way back out to the stars.
+  const ids = app.drawn.actions.map((move) => move.id);
+  assert.ok(ids.includes('chart') && !ids.includes('system'));
+  assert.equal((await app.act('chart')).board, true);
+  assert.ok(app.drawn.board.points.some((point) => point.action.startsWith('warp-')), 'the star chart did not come back');
+});
+
+test('crossing to a body costs days and no fuel', async () => {
+  const app = await flying();
+  app.rewrite(withBelt(app.game));
+  await app.act('system');
+  const before = app.game;
+
+  const crossed = await app.act('fly-1');
+  const after = app.game;
+  // Raiders out by the belt: the panel is a fight now and nothing is submitted
+  // until it is over, exactly as on a jump.
+  if (app.document.fight) {
+    assert.equal(crossed.submit ?? '', '');
+    return;
+  }
+  assert.equal(after.currentBody, 1);
+  // The drive burns nothing. A bad night still can: a misjump is a crew
+  // incident, rolled by the day rather than charged by the crossing, and it is
+  // the one thing that takes fuel out of the tank without a jump.
+  assert.ok(
+    after.ship.fuel === before.ship.fuel || /pc of fuel/i.test(app.document.narrate ?? ''),
+    'the impulse drive burned fuel',
+  );
+  assert.ok(after.day > before.day, 'the crossing took no time at all');
+  assert.match(crossed.submit, /cross/i);
+});
+
+test('away from the spaceport the row is what is actually there', async () => {
+  const app = await flying();
+  const state = withBelt(app.game);
+  state.currentBody = 1;
+  // Short of fuel and short of hull, so the two yard moves would be offered if
+  // anything out here could sell them.
+  state.ship.fuel = 1;
+  state.ship.hull = 10;
+  app.rewrite(state);
+  await app.act('system');
+
+  const ids = app.drawn.actions.map((move) => move.id);
+  assert.ok(!ids.includes('market'), 'a commodity market was offered on an asteroid belt');
+  assert.ok(!ids.includes('jobs'), 'a job board was offered on an asteroid belt');
+  assert.ok(!ids.includes('refuel') && !ids.includes('repair'), 'a rock was selling fuel and hull plate');
+  assert.ok(ids.includes('mine'), 'nothing offered to work a seam the ship is parked on');
+  assert.ok(app.drawn.tags.some((tag) => tag.label === 'AWAY FROM PORT'));
+  assert.ok(app.drawn.actions.length <= 9, 'the row has outgrown its hotkeys');
+});
+
+test('mining is a day for a unit, and it is pressed where the ship is', async () => {
+  const app = await flying();
+  const state = withBelt(app.game);
+  state.currentBody = 1;
+  app.rewrite(state);
+  await app.act('system');
+
+  // The mining is on the marker for the body the ship is docked at, which is
+  // where the app's own map keeps it.
+  const here = app.drawn.board.points.find((point) => point.here);
+  assert.equal(here.action, 'mine');
+  assert.match(here.note, /press/i);
+
+  const before = app.game;
+  const dug = await app.act('mine');
+  const after = app.game;
+  if (app.document.fight) return; // raiders jumped the operation; that is the fight's test
+  assert.ok((after.ship.cargo.ore ?? 0) > (before.ship.cargo.ore ?? 0), 'nothing came out of the rock');
+  // At least a day. An electrical fire in the night costs a second one, which
+  // is the engine's business and not this test's.
+  assert.ok(after.day > before.day, 'a day at the workings took no day');
+  // Mining charges no fuel either — but the day it spends can still lose some
+  // to a misjump, the same way a crossing can.
+  assert.ok(
+    after.ship.fuel === before.ship.fuel || /pc of fuel/i.test(app.document.narrate ?? ''),
+    'a day at the seam burned fuel',
+  );
+  assert.match(dug.submit, /workings/i);
 });
 
 test('the sheet swaps one list for another, and costs nothing', async () => {
@@ -964,7 +1109,9 @@ test('a refused move does not hand the model a row of buttons to invent', async 
   // press sell, press warp" — controls that have never existed.
   const app = await flying();
   await app.show('the launch');
-  const refused = await app.move('mine the asteroid belt');
+  // Not "mine the asteroid belt" any more: that is a move now, and at a planet
+  // with workings of its own it would have been obeyed rather than refused.
+  const refused = await app.move('polish the hull');
   assert.equal(refused.ok, false);
   assert.match(refused.feedback, /NOT a button/);
   assert.match(refused.feedback, /never name a button/);

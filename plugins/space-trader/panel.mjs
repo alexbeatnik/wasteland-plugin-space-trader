@@ -18,7 +18,7 @@
  * the engine: it knows that `water` is Water and that `flea` is a Flea. A label
  * built from the wrong one is the bug this comment exists to prevent.
  */
-import { economyName, techName } from './view.mjs';
+import { bodyKind, bodyName, economyName, siteYield, techName } from './view.mjs';
 import { clip, credits as money, group as digits, t } from './words.mjs';
 
 /** How many systems the chart may carry. The host's own ceiling is 24. */
@@ -158,11 +158,17 @@ export function board(engine, dict, state, image = '') {
     .sort((a, b) => rank(a) - rank(b) || a.distance - b.distance)
     .slice(0, MAX_POINTS);
 
+  // Whether the system the ship is in is worth looking inside. Always, as the
+  // galaxy is generated — but a save written before there were bodies has one
+  // planet and a star, and a button promising a map of that is a button that
+  // lies.
+  const inside = engine.systemBodies(here).length > 1;
+
   const points = shown.map(({ sys, distance }) => {
     const leg = inRange.get(sys.id);
     const wormhole = here.wormholeTo === sys.id;
     const note = sys.id === here.id
-      ? t('board.here')
+      ? inside ? t('board.hereSystem') : t('board.here')
       : wormhole
         ? t('board.wormhole', { tax: digits(engine.wormholeTax(state)) })
         : leg
@@ -188,7 +194,12 @@ export function board(engine, dict, state, image = '') {
       y: Math.max(2, Math.min(98, 50 + ((sys.y - here.y) / reach) * 48)),
       here: sys.id === here.id,
       tone: sys.id === here.id ? '' : leg || wormhole ? 'good' : '',
-      action: sys.id !== here.id && (leg || wormhole) ? `warp-${sys.id}` : '',
+      // Pressing where you already are is the way *in*: the chart is the
+      // galaxy at arm's length, and the system under the ship is the one place
+      // on it that has anything else to show.
+      action: sys.id === here.id
+        ? (inside ? 'system' : '')
+        : leg || wormhole ? `warp-${sys.id}` : '',
     };
   });
 
@@ -205,6 +216,97 @@ export function board(engine, dict, state, image = '') {
   }
 
   return { image, points, links };
+}
+
+/* ---------- the system ---------- */
+
+/**
+ * A place in the system, in the line under its name.
+ *
+ * What it is, what it costs to get there, and what is there when you arrive —
+ * in that order, because the first is what it is called and the last is the
+ * reason to go. The services are named rather than implied: "no market away
+ * from the spaceport" is a rule the engine holds and the panel has to say out
+ * loud, or a hold full of ore looks like a market that has stopped working.
+ */
+export function bodyNote(engine, dict, state, body) {
+  const sys = engine.currentSystem(state);
+  const here = body.id === engine.currentBodyIndex(state);
+  const site = engine.bodyMineSite(sys, body);
+  // The kind is on the line either way: "docked here" says where the ship is
+  // and nothing about what it is parked on.
+  const parts = here
+    ? [t('board.body.here'), bodyKind(dict, body)]
+    : [bodyKind(dict, body), t('board.body.transit', { n: engine.transitDaysTo(state, body.id) })];
+  if (body.kind === 'planet') parts.push(t('board.body.port'));
+  if (body.kind === 'station') parts.push(t('board.body.yard'));
+  if (site) parts.push(t(here ? 'board.body.mineHere' : 'board.body.mine', { resource: siteYield(dict, site) }));
+  if (!site && body.kind === 'barren') parts.push(t('board.body.nothing'));
+  return parts.join(' · ');
+}
+
+/**
+ * The star system, as the board draws it.
+ *
+ * The other half of the chart, and the reason the two share one board: they are
+ * the same question at two scales — where can this ship go, and what is there
+ * when it arrives. The star sits at the centre with everything else out on its
+ * orbit, squashed to about half height so the system reads as a plane seen at
+ * an angle rather than as a target.
+ *
+ * Nothing here is out of range. A warp drive is dead weight this deep in a
+ * star's gravity well, so crossing a system is done on impulse and costs days
+ * rather than fuel — which means every marker is pressable, and what a marker
+ * has to say is what those days buy.
+ *
+ * The one that is not is the body the ship is already at: standing still is not
+ * a course. It carries the mining instead, when there is anything under it,
+ * which is where the app's own map puts it too.
+ */
+export function systemBoard(engine, dict, state, image = '') {
+  const sys = engine.currentSystem(state);
+  const bodies = engine.systemBodies(sys);
+  const hereIndex = engine.currentBodyIndex(state);
+  const outer = Math.max(1, ...bodies.map((body) => body.orbit ?? 1));
+
+  const points = [{
+    id: 'star',
+    label: dict.t('systemMap.star', { class: dict.starClassName(sys.starClass ?? 'yellow') }),
+    note: dict.t('systemMap.bodies', { count: bodies.length }),
+    x: 50,
+    y: 50,
+    here: false,
+    tone: 'warn',
+    action: '',
+  }];
+
+  for (const body of bodies) {
+    const here = body.id === hereIndex;
+    const site = engine.bodyMineSite(sys, body);
+    const angle = (body.angle ?? 0) * Math.PI * 2;
+    const radius = ((body.orbit ?? 1) / outer) * 44;
+    points.push({
+      id: `body-${body.id}`,
+      label: bodyName(dict, sys, body),
+      note: bodyNote(engine, dict, state, body),
+      x: Math.max(2, Math.min(98, 50 + Math.cos(angle) * radius)),
+      // Halved on top of that, for the reason the star chart halves it: a
+      // marker is wider than it is tall, and a true circle of them comes out
+      // looking like an ellipse anyway.
+      y: Math.max(2, Math.min(98, 50 + Math.sin(angle) * radius * 0.52)),
+      here,
+      tone: here ? '' : site ? 'good' : '',
+      action: here ? (site ? 'mine' : '') : `fly-${body.id}`,
+    });
+  }
+
+  // Routes rather than orbits: the same thing the lines mean on the star chart,
+  // drawn from where the ship is to everywhere it could put its nose instead.
+  const links = bodies
+    .filter((body) => body.id !== hereIndex)
+    .map((body) => ({ from: `body-${hereIndex}`, to: `body-${body.id}`, tone: 'good' }));
+
+  return { image, points: points.slice(0, MAX_POINTS), links };
 }
 
 /* ---------- the deck ---------- */
@@ -686,7 +788,7 @@ export function groupsFor(engine, dict, state, view, { slots = [], running = tru
  * button that answers "there is no shipyard here" is a button that should not
  * have been drawn. The first nine get the digits `1`–`9` by position.
  */
-export function moves(engine, state, { armedRestart = false } = {}) {
+export function moves(engine, dict, state, { armedRestart = false, boardView = 'chart' } = {}) {
   if (isWrecked(state)) {
     return [
       { id: 'restart', label: t('move.restart.label'), hint: t('move.restart.hintOver'), tone: 'good' },
@@ -694,20 +796,52 @@ export function moves(engine, state, { armedRestart = false } = {}) {
     ];
   }
 
-  const list = [
-    { id: 'market', label: t('move.market.label'), hint: t('move.market.hint') },
-    { id: 'chart', label: t('move.chart.label'), hint: t('move.chart.hint') },
-    { id: 'ship', label: t('move.ship.label'), hint: t('move.ship.hint') },
-    { id: 'jobs', label: t('move.jobs.label'), hint: t('move.jobs.hint') },
-    { id: 'news', label: t('move.news.label'), hint: t('move.news.hint') },
-  ];
+  /**
+   * The row is where the ship is, not where the run started.
+   *
+   * The market, the bank, the hiring hall and the job board are the capital
+   * planet's spaceport, and the engine refuses all four anywhere else. A button
+   * that exists to be refused is worse than no button: it reads as the game
+   * being broken rather than as the ship being parked on a rock.
+   */
+  const port = engine.hasSpaceport(state);
+  const site = engine.currentMineSite(state);
+  const list = [];
+  if (port) list.push({ id: 'market', label: t('move.market.label'), hint: t('move.market.hint') });
+  // One key for both maps, because there is only one board to draw them on and
+  // ten moves is one more than there are digits. It is labelled with what
+  // pressing it will show rather than with what is up, which is the way every
+  // other toggle in the app reads.
+  list.push(boardView === 'system'
+    ? { id: 'chart', label: t('move.chart.label'), hint: t('move.chart.hint') }
+    : { id: 'system', label: t('move.system.label'), hint: t('move.system.hint') });
+  list.push({ id: 'ship', label: t('move.ship.label'), hint: t('move.ship.hint') });
+  if (port) list.push({ id: 'jobs', label: t('move.jobs.label'), hint: t('move.jobs.hint') });
+  list.push({ id: 'news', label: t('move.news.label'), hint: t('move.news.hint') });
+
+  /**
+   * MINE, where mining is what the ship came for.
+   *
+   * Only away from the spaceport, and that is a room decision as much as a
+   * sense one: at the capital the row is already nine moves deep with fuel and
+   * repairs on it, and a tenth would be a move with no digit. Out on a rock
+   * there is nothing else to press — and at a planet with workings of its own
+   * the marker on the system map is still there to press, which is where the
+   * app's own map keeps mining anyway.
+   */
+  if (site && !port) {
+    list.push({
+      id: 'mine',
+      label: t('move.mine.label'),
+      hint: t('move.mine.hint', { resource: siteYield(dict, site) }),
+      tone: 'good',
+    });
+  }
 
   const ship = state.ship;
-  // Always true as the plugin flies — a run never leaves the capital's landing
-  // field, and the engine reads a shipyard off exactly that. Asked anyway,
-  // because it is the engine's rule for whether fuel can be bought at all, and
-  // a button that costs nothing to withhold should not be drawn on an
-  // assumption about somebody else's code.
+  // The planet's own yard, or a station's. Not a rock: nothing out there sells
+  // fuel or straightens hull plate, and the engine says so before the credits
+  // are counted.
   if (engine.hasShipyard(state)) {
     const wanted = engine.maxFuel(ship) - ship.fuel;
     if (wanted > 0) {
@@ -753,7 +887,7 @@ export function moves(engine, state, { armedRestart = false } = {}) {
 export function snapshot(engine, dict, state, options = {}) {
   const {
     sheetView = 'market', armedRestart = false, image = '', pictures = {},
-    amount = null, deck = false, slots = [],
+    amount = null, deck = false, slots = [], boardView = 'chart',
   } = options;
   const sys = engine.currentSystem(state);
   const ship = state.ship;
@@ -807,9 +941,15 @@ export function snapshot(engine, dict, state, options = {}) {
   if (ship.escapePod) tags.push({ label: t('panel.tag.pod'), tone: 'good' });
   if (state.insurance) tags.push({ label: t('panel.tag.insured'), tone: 'good' });
   if (sys.status && sys.status !== 'uneventful') tags.push({ label: dict.statusName(sys.status), tone: 'warn' });
+  // Not a misfortune, but it is why half the row is missing: the market, the
+  // bank, the hiring hall and the job board are all the planet's spaceport.
+  if (!wrecked && !engine.hasSpaceport(state)) tags.push({ label: t('panel.tag.away'), tone: 'warn' });
 
   const document = {
-    title: t('panel.title', { commander: state.commanderName, system: sys.nameId }),
+    // Where the ship actually is, which is not always the planet the system is
+    // named after: a run parked on a belt four days out should not be titled as
+    // though it were sitting on the landing field.
+    title: t('panel.title', { commander: state.commanderName, system: bodyName(dict, sys, engine.currentBody(state)) }),
     subtitle: wrecked
       ? t('panel.subtitle.over', { ship: dict.shipName(ship.type), system: sys.nameId, day: state.day })
       : t(sys.status && sys.status !== 'uneventful' ? 'panel.subtitle.situation' : 'panel.subtitle', {
@@ -823,8 +963,16 @@ export function snapshot(engine, dict, state, options = {}) {
     fields,
     tags,
     groups: groupsFor(engine, dict, state, sheetView, { slots, running: !wrecked }),
-    actions: moves(engine, state, { armedRestart }),
-    board: board(engine, dict, state, image),
+    actions: moves(engine, dict, state, { armedRestart, boardView }),
+    /**
+     * One board, two maps.
+     *
+     * The galaxy and the system are the same question at two scales, and the
+     * host draws one board — so they take turns on it rather than competing
+     * for the row. Which one is up is where the player last looked, and it
+     * survives a repaint for the same reason the open sheet does.
+     */
+    board: boardView === 'system' ? systemBoard(engine, dict, state, image) : board(engine, dict, state, image),
     /**
      * The deck, while it is open and there is a market to deal from.
      *

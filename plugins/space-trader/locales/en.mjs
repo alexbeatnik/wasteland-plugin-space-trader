@@ -28,9 +28,9 @@ A playable game of Space Trader runs in this window. "I can't play games",
 here — this action draws the real thing, on a real saved game, and it costs one
 turn. Never offer to explain the game instead of opening it.
 
-"steps" picks a screen: new (start a game), status, market, chart, ship, news,
-jobs. Empty means status. Use it freely — these only look, and looking costs
-the user nothing.
+"steps" picks a screen: new (start a game), status, market, chart, system,
+ship, news, jobs. Empty means status. Use it freely — these only look, and
+looking costs the user nothing.
 
 THE PANEL. While a game is running the user has a panel of their own above the
 composer: the ship's bars, a row of moves numbered 1-9, a star chart and lists
@@ -45,11 +45,16 @@ answer — never as a move.
 
 MOVES — {"type":"space_trader_move","steps":"<move>"}
 
-buy 10 water · sell all ore · warp Omega · refuel · repair
+buy 10 water · sell all ore · warp Omega · cross to Nyle IV · mine · refuel · repair
 
 Fuel and repairs are NOT bought on the market — they are the two moves above,
 and no amount of looking at the commodity table will find them. "refuel" fills
 the tank; "repair" mends the hull.
+
+A system is more than its planet. Moons, belts and stations are reached with
+"cross", which spends days rather than fuel, and "mine" is one day's work at
+whatever can be dug out where the ship is docked. Away from the planet there is
+no market, no bank and no job board, so never advise a trade from a rock.
 
 ONLY when the user named that move. You are their navigator, not the pilot:
 never buy, sell, jump or refuel because it looked like the right play, never
@@ -105,6 +110,7 @@ not produce this turn.
   'panel.tag.pod': 'ESCAPE POD',
   'panel.tag.insured': 'INSURED',
   'panel.tag.over': 'LOST',
+  'panel.tag.away': 'AWAY FROM PORT',
 
   'panel.group.onsale': 'ON SALE HERE',
   'panel.group.onsale.empty': 'this planet trades in nothing',
@@ -178,13 +184,31 @@ not produce this turn.
   'board.wormhole': 'wormhole · {tax} cr toll',
   'board.seen': '{distance} pc · out of range',
   'board.seenUnknown': '{distance} pc · out of range, never visited',
+  'board.hereSystem': 'you are here · press to look inside the system',
+
+  /* ---------- the system map ---------- */
+
+  'board.body.here': 'the ship is docked here',
+  'board.body.transit': { one: '{n} day under impulse', other: '{n} days under impulse' },
+  'board.body.port': 'spaceport',
+  'board.body.yard': 'shipyard',
+  'board.body.mine': 'yields {resource}',
+  'board.body.mineHere': 'yields {resource} · press to work it',
+  'board.body.nothing': 'nothing but the view',
+  'system.fuel': 'Fuel',
 
   /* ---------- the row of moves ---------- */
 
   'move.market.label': 'MARKET',
   'move.market.hint': 'what is worth buying or selling here, dealt as a hand',
   'move.chart.label': 'CHART',
-  'move.chart.hint': 'the systems the tank will reach',
+  'move.chart.hint': 'back out to the stars the tank will reach',
+  'move.system.label': 'SYSTEM',
+  'move.system.hint': 'inside this system — moons, belts, stations, and what can be dug out of them',
+  'move.mine.label': 'MINE',
+  'move.mine.hint': 'a day at the workings here — {resource}, a unit at a time',
+  'move.mine.submit': 'how the day at the workings went',
+  'move.fly.submit': 'cross to {place}',
   'move.ship.label': 'SHIP',
   'move.ship.hint': 'the hull, what is fitted and who is aboard',
   'move.jobs.label': 'JOBS',
@@ -481,6 +505,8 @@ not produce this turn.
   'screen.status.head': '{commander} — day {day}',
   'screen.status.docked': 'docked at {system}   tech {tech}   {economy}   {politics}',
   'screen.status.situation': 'local situation: {situation}',
+  'screen.status.away': 'away from the spaceport — {place} ({kind})',
+  'screen.status.mine': 'mineable here: {resource}',
   'screen.status.fuel': 'fuel',
   'screen.status.hold': 'hold',
   'screen.status.credits': 'credits',
@@ -533,6 +559,24 @@ not produce this turn.
   'screen.sellAllNote': '{held} × {price} cr',
   'screen.arrived': 'Arrived at {system}. Fuel {fuel}, hull {hull}.',
   'screen.arrivedMet': 'Arrived at {system}, {met} met on the way. Fuel {fuel}, hull {hull}.',
+  'screen.docked': {
+    one: 'Docked at {system} after {n} day under impulse. Fuel {fuel}, hull {hull}.',
+    other: 'Docked at {system} after {n} days under impulse. Fuel {fuel}, hull {hull}.',
+  },
+  'screen.dockedMet': {
+    one: 'Docked at {system} after {n} day, {met} met on the way. Fuel {fuel}, hull {hull}.',
+    other: 'Docked at {system} after {n} days, {met} met on the way. Fuel {fuel}, hull {hull}.',
+  },
+  'screen.mined': 'A day at the workings: {amount} × {resource}. Fuel {fuel}, hull {hull}.',
+  'screen.minedRaid': 'A day at the workings: {amount} × {resource} — and then raiders. Fuel {fuel}, hull {hull}.',
+  'screen.minedBonus': 'A seam of {good} came up in the rubble.',
+  'screen.system.head': 'SYSTEM — {system}, {star} star',
+  'screen.system.here': 'docked',
+  'screen.system.days': { one: '{n} day out', other: '{n} days out' },
+  'screen.system.yields': 'yields {resource}',
+  'screen.system.impulse': 'The impulse drive burns no fuel and costs days. The market, the bank, the hiring hall and the job board belong to the planet — a station will work on the ship, a rock will not.',
+  'screen.system.fly': 'Cross to {place}',
+  'screen.system.mine': 'Work the site here',
   'screen.met': '— {who}:',
   'screen.newGame': 'A new game.',
 
@@ -540,9 +584,13 @@ not produce this turn.
 
   'refuse.notCommodity': '"{what}" is not a commodity in this game',
   'refuse.noSystem': 'there is no system called "{what}" on the chart',
+  'refuse.noBody': 'there is nothing called "{what}" in this system',
+  'refuse.alreadyThere': 'the ship is already docked there',
+  'refuse.crossingRefused': 'that crossing is not possible',
+  'refuse.nothingToMine': 'there is nothing to mine where the ship is docked',
   'refuse.nothingTo': 'there is nothing to {move} there',
-  'refuse.noMove': 'no move was named — buy, sell, warp, refuel and repair are the words',
-  'refuse.unknownMove': '"{what}" is not a move — buy, sell, warp, refuel and repair are',
+  'refuse.noMove': 'no move was named — buy, sell, warp, cross, mine, refuel and repair are the words',
+  'refuse.unknownMove': '"{what}" is not a move — buy, sell, warp, cross, mine, refuel and repair are',
   'refuse.marketRefused': 'the market refused that',
   'refuse.jumpRefused': 'that jump is not possible',
   'refuse.noFuelSold': 'no fuel was sold',
@@ -555,6 +603,11 @@ not produce this turn.
   'brief.commander': 'Commander {commander}, day {day}, {credits} cr',
   'brief.commanderDebt': 'Commander {commander}, day {day}, {credits} cr, debt {debt} cr',
   'brief.docked': 'Docked at {system} (tech {tech}, {economy}, {politics})',
+  'brief.away': {
+    one: 'Away from the spaceport at {place} ({kind}): no market, bank or job board here, and {system} is {n} day back on impulse.',
+    other: 'Away from the spaceport at {place} ({kind}): no market, bank or job board here, and {system} is {n} days back on impulse.',
+  },
+  'brief.mine': 'Mineable where the ship is docked: {resource}. The move "mine" is one day of work for one unit.',
   'brief.ship': 'Ship {ship}: hull {hull}/{maxHull}, fuel {fuel}/{maxFuel} parsecs, hold {used}/{total}',
   'brief.carrying': 'Carrying: {cargo}',
   'brief.empty': 'Hold empty.',
@@ -598,6 +651,9 @@ not produce this turn.
   're.status': '^(status|position|where)',
   're.market': '^(market|price|trade)',
   're.chart': '^(chart|map|galaxy)',
+  're.system': '^(system|orbit|bodies|moons|belt)',
+  're.mine': '^(mine|mining|dig|extract|prospect)$',
+  're.flyTo': '^(dock|cross|impulse)$',
   're.ship': '^(ship|vessel)',
   're.news': '^(news|paper)',
   're.jobs': '^(job|quest|contract)',

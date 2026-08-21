@@ -1,10 +1,10 @@
 {
   "id": "space-trader",
   "name": "Space Trader",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "apiVersion": 12,
   "category": "games",
-  "description": "The Palm OS classic, played in the chat window, from a panel with the ship's bars, a star chart you press to jump, and a market dealt as a hand of cards — one commodity each, with what it costs here, where in range pays more and what the difference comes to a cargo bay. Trade between 140 star systems, fight off the pirates who stop you on the way a round at a time, and buy off the haulers who only wanted to sell you something. You make every move; the model reads the position each turn and advises, and never spends your credits or fires your guns itself.",
+  "description": "The Palm OS classic, played in the chat window, from a panel with the ship's bars, a star chart you press to jump, a map of the system you are in with the belts and ice moons worth mining, and a market dealt as a hand of cards — one commodity each, with what it costs here, where in range pays more and what the difference comes to a cargo bay. Trade between 140 star systems, fight off the pirates who stop you on the way a round at a time, and buy off the haulers who only wanted to sell you something. You make every move; the model reads the position each turn and advises, and never spends your credits or fires your guns itself.",
   "author": "alexbeatnik",
   "icon": "icon.svg",
   "main": "main.mjs",

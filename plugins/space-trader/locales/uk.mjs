@@ -33,8 +33,8 @@ SPACE TRADER — {"type":"space_trader","steps":"<екран>"}
 неправда: ця дія малює справжню гру на справжньому збереженні й коштує один хід.
 Ніколи не пропонуй пояснити гру замість того, щоб її відкрити.
 
-"steps" вибирає екран: new (почати гру), status, market, chart, ship, news,
-jobs. Порожньо означає status. Користуйся вільно — це лише погляд, і він нічого
+"steps" вибирає екран: new (почати гру), status, market, chart, system, ship,
+news, jobs. Порожньо означає status. Користуйся вільно — це лише погляд, і він нічого
 не коштує користувачеві.
 
 ПАНЕЛЬ. Поки гра йде, у користувача над полем вводу є власна панель: смуги
@@ -50,11 +50,16 @@ jobs. Порожньо означає status. Користуйся вільно 
 
 ХОДИ — {"type":"space_trader_move","steps":"<хід>"}
 
-buy 10 water · sell all ore · warp Omega · refuel · repair
+buy 10 water · sell all ore · warp Omega · cross to Nyle IV · mine · refuel · repair
 
 Пальне і ремонт НЕ купують на ринку — це два окремі ходи вище, і скільки не
 дивись у таблицю товарів, там їх немає. "refuel" наповнює бак, "repair" лагодить
 корпус.
+
+Система — це не лише її планета. До місяців, поясів і станцій летять ходом
+"cross", і він коштує днів, а не пального; "mine" — це день роботи там, де стоїть
+корабель, якщо там є що копати. Поза планетою немає ні ринку, ні банку, ні біржі
+праці, тож ніколи не радь торгувати зі скелі.
 
 ЛИШЕ тоді, коли користувач назвав цей хід. Ти штурман, а не пілот: ніколи не
 купуй, не продавай, не стрибай і не заправляйся тому, що це здалося вдалим
@@ -108,6 +113,7 @@ market каже, що тут скільки коштує; chart каже, що �
   'panel.tag.pod': 'РЯТУВАЛЬНА КАПСУЛА',
   'panel.tag.insured': 'ЗАСТРАХОВАНО',
   'panel.tag.over': 'ВТРАЧЕНО',
+  'panel.tag.away': 'ПОЗА ПОРТОМ',
 
   'panel.group.onsale': 'ПРОДАЄТЬСЯ ТУТ',
   'panel.group.onsale.empty': 'ця планета нічим не торгує',
@@ -181,13 +187,35 @@ market каже, що тут скільки коштує; chart каже, що �
   'board.wormhole': 'кротовина · збір {tax} кр',
   'board.seen': '{distance} пк · поза досяжністю',
   'board.seenUnknown': '{distance} пк · поза досяжністю, ніколи не відвідано',
+  'board.hereSystem': 'ви тут · натисніть, щоб зазирнути в систему',
+
+  /* ---------- карта системи ---------- */
+
+  'board.body.here': 'корабель стоїть тут',
+  'board.body.transit': {
+    one: '{n} день на імпульсній тязі',
+    few: '{n} дні на імпульсній тязі',
+    many: '{n} днів на імпульсній тязі',
+  },
+  'board.body.port': 'космопорт',
+  'board.body.yard': 'верф',
+  'board.body.mine': 'ресурс: {resource}',
+  'board.body.mineHere': 'ресурс: {resource} · натисніть, щоб копати',
+  'board.body.nothing': 'нічого, крім краєвиду',
+  'system.fuel': 'Пальне',
 
   /* ---------- the row of moves ---------- */
 
   'move.market.label': 'РИНОК',
   'move.market.hint': 'що тут варто купити чи продати — колодою',
   'move.chart.label': 'КАРТА',
-  'move.chart.hint': 'куди дістане бак',
+  'move.chart.hint': 'назад до зірок, куди дістане бак',
+  'move.system.label': 'СИСТЕМА',
+  'move.system.hint': 'усередині цієї системи — місяці, пояси, станції і те, що з них можна видобути',
+  'move.mine.label': 'КОПАТИ',
+  'move.mine.hint': 'день на тутешній копальні — {resource}, по одиниці',
+  'move.mine.submit': 'як минув день на копальні',
+  'move.fly.submit': 'перелетіти до {place}',
   'move.ship.label': 'КОРАБЕЛЬ',
   'move.ship.hint': 'корпус, обладнання і хто на борту',
   'move.jobs.label': 'КОНТРАКТИ',
@@ -484,6 +512,8 @@ market каже, що тут скільки коштує; chart каже, що �
   'screen.status.head': '{commander} — день {day}',
   'screen.status.docked': 'на орбіті {system}   техрівень {tech}   {economy}   {politics}',
   'screen.status.situation': 'ситуація тут: {situation}',
+  'screen.status.away': 'поза космопортом — {place} ({kind})',
+  'screen.status.mine': 'тут можна копати: {resource}',
   'screen.status.fuel': 'пальне',
   'screen.status.hold': 'трюм',
   'screen.status.credits': 'кредити',
@@ -536,6 +566,26 @@ market каже, що тут скільки коштує; chart каже, що �
   'screen.sellAllNote': '{held} × {price} кр',
   'screen.arrived': 'Прибуття: {system}. Пальне {fuel}, корпус {hull}.',
   'screen.arrivedMet': 'Прибуття: {system}, у дорозі зустрічей: {met}. Пальне {fuel}, корпус {hull}.',
+  'screen.docked': {
+    one: 'Пришвартовано: {system}, {n} день на імпульсній тязі. Пальне {fuel}, корпус {hull}.',
+    few: 'Пришвартовано: {system}, {n} дні на імпульсній тязі. Пальне {fuel}, корпус {hull}.',
+    many: 'Пришвартовано: {system}, {n} днів на імпульсній тязі. Пальне {fuel}, корпус {hull}.',
+  },
+  'screen.dockedMet': {
+    one: 'Пришвартовано: {system}, {n} день у дорозі, зустрічей: {met}. Пальне {fuel}, корпус {hull}.',
+    few: 'Пришвартовано: {system}, {n} дні в дорозі, зустрічей: {met}. Пальне {fuel}, корпус {hull}.',
+    many: 'Пришвартовано: {system}, {n} днів у дорозі, зустрічей: {met}. Пальне {fuel}, корпус {hull}.',
+  },
+  'screen.mined': 'День на копальні: {amount} × {resource}. Пальне {fuel}, корпус {hull}.',
+  'screen.minedRaid': 'День на копальні: {amount} × {resource} — а потім рейдери. Пальне {fuel}, корпус {hull}.',
+  'screen.minedBonus': 'У породі трапилася жила: {good}.',
+  'screen.system.head': 'СИСТЕМА — {system}, {star} зоря',
+  'screen.system.here': 'тут',
+  'screen.system.days': { one: '{n} день льоту', few: '{n} дні льоту', many: '{n} днів льоту' },
+  'screen.system.yields': 'ресурс: {resource}',
+  'screen.system.impulse': 'Імпульсна тяга не палить пального, а коштує днів. Ринок, банк, наймання й біржа праці — це планета; станція візьметься за корабель, гола скеля — ні.',
+  'screen.system.fly': 'Перелетіти до {place}',
+  'screen.system.mine': 'Копати тут',
   'screen.met': '— {who}:',
   'screen.newGame': 'Нова гра.',
 
@@ -543,9 +593,13 @@ market каже, що тут скільки коштує; chart каже, що �
 
   'refuse.notCommodity': '«{what}» — не товар у цій грі',
   'refuse.noSystem': 'на карті немає системи з назвою «{what}»',
+  'refuse.noBody': 'у цій системі немає нічого з назвою «{what}»',
+  'refuse.alreadyThere': 'корабель уже стоїть там',
+  'refuse.crossingRefused': 'такий переліт неможливий',
+  'refuse.nothingToMine': 'там, де стоїть корабель, копати нічого',
   'refuse.nothingTo': 'тут нема чого на це витрачати ({move})',
-  'refuse.noMove': 'ходу не названо — слова такі: buy, sell, warp, refuel, repair',
-  'refuse.unknownMove': '«{what}» — це не хід; ходи такі: buy, sell, warp, refuel, repair',
+  'refuse.noMove': 'ходу не названо — слова такі: buy, sell, warp, cross, mine, refuel, repair',
+  'refuse.unknownMove': '«{what}» — це не хід; ходи такі: buy, sell, warp, cross, mine, refuel, repair',
   'refuse.marketRefused': 'ринок цього не прийняв',
   'refuse.jumpRefused': 'такий стрибок неможливий',
   'refuse.noFuelSold': 'пального не продали',
@@ -558,6 +612,12 @@ market каже, що тут скільки коштує; chart каже, що �
   'brief.commander': 'Командир {commander}, день {day}, {credits} кр',
   'brief.commanderDebt': 'Командир {commander}, день {day}, {credits} кр, борг {debt} кр',
   'brief.docked': 'На орбіті {system} (техрівень {tech}, {economy}, {politics})',
+  'brief.away': {
+    one: 'Поза космопортом, біля {place} ({kind}): тут немає ні ринку, ні банку, ні біржі праці, а до {system} — {n} день на імпульсній тязі.',
+    few: 'Поза космопортом, біля {place} ({kind}): тут немає ні ринку, ні банку, ні біржі праці, а до {system} — {n} дні на імпульсній тязі.',
+    many: 'Поза космопортом, біля {place} ({kind}): тут немає ні ринку, ні банку, ні біржі праці, а до {system} — {n} днів на імпульсній тязі.',
+  },
+  'brief.mine': 'Там, де стоїть корабель, є що копати: {resource}. «копати» — день роботи за одиницю.',
   'brief.ship': 'Корабель {ship}: корпус {hull}/{maxHull}, пальне {fuel}/{maxFuel} парсеків, трюм {used}/{total}',
   'brief.carrying': 'Везе: {cargo}',
   'brief.empty': 'Трюм порожній.',
@@ -596,6 +656,9 @@ market каже, що тут скільки коштує; chart каже, що �
   're.status': '^(статус|стан|позиц|де )',
   're.market': '^(ринок|ціни|торг)',
   're.chart': '^(карта|мапа|галактик)',
+  're.system': '^(система|систем|орбіт|тіла|пояс)',
+  're.mine': '^(копати|копай|майнити|видобувати|видобуток)$',
+  're.flyTo': '^(пришвартуватися|причалити|перелетіти)$',
   're.ship': '^(корабель|судно)',
   're.news': '^(новини|газета)',
   're.jobs': '^(робот|контракт|завдання|замовлен)',

@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.4.0.
+with the model reading the position over your shoulder. Version 2.5.0.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -30,9 +30,11 @@ your standing with the law and how many systems are in reach. Anything currently
 something hangs as a tag: WANTED, IN DEBT, STRANDED, HULL BREACHED, and whatever the planet below is
 living through.
 
-**The row of moves**, numbered `1`–`9`: MARKET, CHART, SHIP, JOBS, NEWS, and REFUEL and REPAIR when
-there is a shipyard and something to spend it on. The engine decides what is in that row — a full
-tank is not offered fuel — so the model neither invents the list nor recites it.
+**The row of moves**, numbered `1`–`9`: MARKET, SYSTEM (or CHART, whichever the board is not
+showing), SHIP, JOBS, NEWS, MINE where the ship is parked on something worth digging, and REFUEL and
+REPAIR when there is a shipyard and something to spend it on. The engine decides what is in that row
+— a full tank is not offered fuel, and a rock has no market — so the model neither invents the list
+nor recites it.
 
 **Looking costs nothing.** MARKET deals the hand below; SHIP, JOBS and NEWS open the sheet on one
 list each. No turn, no model, no tokens. Reading your own manifest is not a thing to ask a language
@@ -42,6 +44,22 @@ model to do for you.
 actually are, and a line to every one the tank will reach; press one and you jump. What is out of
 range is still drawn, because knowing that Nyle is two hops past the fuel is how a route gets
 planned, but it is a label rather than a button.
+
+**The system is the other half of that board.** `SYSTEM` swaps the galaxy for the star the ship is
+parked at: the capital planet, the dead worlds sharing its sun, and now and then a station in orbit
+around one of them. Pressing where you already are on the star chart opens it too. Nothing here is
+out of range — a warp drive is dead weight this deep in a gravity well, so crossing to a belt runs
+on impulse and costs days rather than fuel, with everything a day out in the dark entails.
+
+**`MINE`, where there is anything to dig.** An asteroid field yields ore, an ice moon water, and a
+gas giant fuel — which is a tank filled a long way from anywhere selling any. One press is one day
+and one unit; an industrial hull runs heavy rigs and takes more. About one operation in eight is
+jumped by raiders, and that is the same fight the panel fights everywhere else.
+
+**Away from the planet the row goes quiet, and it should.** The market, the bank, the hiring hall and
+the job board are the spaceport's, and the spaceport is on the capital. A station will work on a
+ship; a rock will not. The moves that cannot be made are not drawn, because a button that exists to
+be refused reads as the game being broken rather than as the ship being parked on a rock.
 
 **The market is dealt, not listed.** MARKET turns the panel into a hand of cards, one commodity
 each, with the decision already worked out on it:
@@ -156,6 +174,9 @@ panel is not.
 | *start a new game* | five cards, then a name, then a Flea and 1000 credits somewhere random |
 | *show me the market* | the price table for this planet, printed |
 | *what's on the chart* | the local starfield in characters, and a button per system in range |
+| *system* | everywhere in this system: what is on it, and how many days out |
+| *cross to the ice moon* | the impulse run — days off the calendar, no fuel out of the tank |
+| *mine* | a day at whatever can be dug out where the ship is docked |
 | *buy 10 water* | it buys 10 water |
 | *sell all ore* | it sells the lot |
 | *warp to Nyle* | the jump, whoever you meet on the way, and where you end up |
@@ -413,6 +434,46 @@ both read the same save, which is what stops the screen and the prompt describin
 
 ---
 
+## What changed in 2.5.0
+
+- **A system is somewhere to go, not a dot.** The engine has always laid out every star system —
+  the settled capital, the dead worlds sharing its sun, now and then a station in orbit around one
+  of them — and the plugin drew a system as one point on a chart. `SYSTEM` is that layout: the star
+  at the centre and everything else out on its orbit, on the same board the galaxy is drawn on,
+  because they are one question at two scales and the host draws one board. Pressing where you
+  already are on the star chart opens it, which is the honest place to put that door — the system
+  under the ship is the one marker on a chart with anything else to show.
+- **Crossing a system costs days, not fuel.** A warp drive is dead weight this deep in a star's
+  gravity well, so the run out to a belt is made on impulse: nothing off the gauge, one to six days
+  off the calendar, and a chance per day that somebody finds you out there. Days are not free — they
+  are wages, interest, and whatever an undermanned watch does to a ship — which is what makes a
+  four-day moon a decision rather than a detour.
+- **MINE.** An asteroid field yields ore, an ice moon water, and a gas giant fuel — a tank filled a
+  very long way from anywhere that sells any. A press is a day and a unit, an industrial hull runs
+  heavy rigs and brings up more, a belt now and then turns up a gem, and about one operation in
+  eight is jumped by raiders, which is the same fight the panel already fights. The mining sits on
+  the marker for the body the ship is docked at rather than on the row: it is a thing you do to a
+  place, and the row at a planet is already nine moves deep.
+- **The row is where the ship is.** The market, the bank, the hiring hall and the job board are the
+  spaceport's, and the spaceport is on the capital planet. The engine has always refused all four
+  anywhere else; the panel used to draw them anyway, which would have read as the game being broken
+  rather than as the ship being parked on a rock. They are not drawn out there now, a station is
+  still a shipyard and a rock is not, and a tag says AWAY FROM PORT so the missing half of the row
+  has a reason on screen.
+- **`[ PLAY ]`, in the left panel.** A save is one run and a window is many conversations, so the
+  ordinary way to find a game was to open a chat that had never drawn it — and the only way in was
+  to type at the model and hope it passed the words along, which is a turn and a model call spent on
+  something that is not a move. A press claims the panel and sends the same words the menu's LOAD
+  GAME sends, so the model reads the position out and the transcript looks the same either way.
+- **Fixed: the chart emptied out as the tank did.** It drew what the fuel could reach plus the
+  systems this run had already visited, so flying in on fumes deleted exactly the stars a route
+  would be planned through — a chart at its emptiest at the one moment it is needed. The window is
+  the neighbourhood now, sized by the tank rather than by what is left in it: everything inside it
+  is drawn whether or not it can be afforded, out of range and unpressable and labelled as such, and
+  what the chart holds only changes when the ship moves.
+
+---
+
 ## What changed in 2.4.0
 
 - **Fixed: a black hole ended the jump in a TypeError.** `warp` reports a singularity raw — survived or not, the damage, the days — and `blackHoleEvent` is what turns it into a sentence. Read as though it were already one it has no `bodyKey`, rendering `undefined` threw inside the dictionary, and the jump came back as a refusal with the ship still where it started. A fraction of a percent of jumps, which is exactly the rate that reads as a flaky test.
@@ -433,8 +494,6 @@ both read the same save, which is what stops the screen and the prompt describin
 - **Throwing a slot away is its own list**, kept apart from the two that load and save, because it is
   the only thing here that cannot be undone and it should not sit under the cursor of somebody
   aiming at LOAD.
-
-## What changed in 2.4.0
 
 - **Fixed: a market could not be left without buying something.** The deck is dealt in the app's
   chooser, which is its question dialog — no close button, no Escape, no dismissing it by clicking
