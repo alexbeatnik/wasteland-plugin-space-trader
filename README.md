@@ -244,24 +244,34 @@ and the answer to it is in the [Space Trader](https://github.com/alexbeatnik/Spa
 | Control | What it is |
 | --- | --- |
 | Language | English or Українська |
+| `[ PLAY ]` | the run in progress, on screen in this conversation |
 | `[ NEW GAME ]` | the background cards, then a name |
 | `[ SAVE ]` | copy the run being played into one of six slots |
 | `[ LOAD ]` | open a slot — whether or not a game is running |
 
-All four are drawn twice: on the plugin's row in PLUGINS, where somebody decides about the plugin,
+All five are drawn twice: on the plugin's row in PLUGINS, where somebody decides about the plugin,
 and in a section of the left panel headed SPACE TRADER, where somebody plays — one declaration, two
 places, asked for with `"panel"` in the manifest and drawn while the plugin is running.
 
-**Three of them are buttons, which is a setting type that stores nothing.** A setting is a question
+**Four of them are buttons, which is a setting type that stores nothing.** A setting is a question
 whose answer the app keeps; these are things that happen when they are pressed. They needed a home in
 the left panel and the panel section is built from the settings list, so plugin API 12 added
 `type: "button"` and `ctx.onButton` to Wasteland Next for exactly this. A press answers in the same
 words a move on the game's row answers with — `{status, sheet, cards, submit}` — and the app claims
-the panel for the conversation the press came from, which is what makes LOAD work when there is
-nothing on screen at all.
+the panel for the conversation the press came from, which is what makes PLAY and LOAD work when
+there is nothing on screen at all.
+
+**PLAY is for the ordinary case, which is a chat that has never drawn the game.** One save, many
+conversations: open a new one and the panel belongs to the old one, so the way in was to type
+something at the model and hope it passed the words along — a turn, a model call and a relay, spent
+on a thing that is not a move, and a small model is as likely to answer the request itself. A press
+claims the panel and sends the same words the menu's LOAD GAME sends, so the model reads the
+position out and the transcript looks the same either way. With nothing saved at all it asks who is
+flying, because a button that answers "there is nothing to play" has cost a press and given nothing
+back — and nothing is written over, since the commander is not made until a name is sent.
 
 **Why the left panel and not the row above the composer.** That row only exists while a game is
-drawn. LOAD is for the moment when none is.
+drawn. PLAY and LOAD are for the moment when none is.
 
 **There used to be a second, and it was a mistake.** *Met in transit* asked, before any of it had
 happened, what to do about a fight — one standing answer to a question that is different every time

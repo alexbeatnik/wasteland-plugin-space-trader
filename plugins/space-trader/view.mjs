@@ -62,10 +62,16 @@ export function economyName(engine, dict, sys) {
 /**
  * The local starfield.
  *
- * Only what the ship could reach plus what has been seen, because the chart is
- * a decision — where to go next — and 140 systems is not one. The current
- * system is always at the centre, and the scale is the jump range, so the edge
- * of the drawing is the edge of the tank.
+ * The neighbourhood rather than the galaxy, because the chart is a decision —
+ * where to go next — and 140 systems is not one. The current system is always
+ * at the centre, and the scale is the jump range, so the edge of the drawing is
+ * a little past the edge of a full tank.
+ *
+ * Everything inside that window is drawn, reachable or not, visited or not. The
+ * window is sized by the tank rather than by what is left in it, so what the
+ * chart holds does not change as the fuel burns down — the glyph does, and
+ * that is the honest way round: an empty tank is a chart of stars you cannot
+ * currently afford, not a chart of four stars.
  *
  * A cell holds one glyph, and where two systems land on the same cell the
  * nearer one wins: overprinting would draw a star that is not there.
@@ -75,10 +81,7 @@ export function chart(engine, state, { width = CHART_W, height = CHART_H } = {})
   const range = Math.max(1, engine.maxRange(state));
   const reachable = new Set(engine.reachableSystems(state).map((s) => s.id));
 
-  const shown = state.systems.filter((sys) => {
-    const distance = engine.systemDistance(here, sys);
-    return distance <= range * 1.35 && (sys.visited || reachable.has(sys.id) || sys.id === here.id);
-  });
+  const shown = state.systems.filter((sys) => engine.systemDistance(here, sys) <= range * 1.35);
 
   const grid = Array.from({ length: height }, () => Array(width).fill(' '));
   const claimed = new Map();

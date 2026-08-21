@@ -180,6 +180,7 @@ market каже, що тут скільки коштує; chart каже, що �
   'board.reachableUnknown': '{fuel} пального · {distance} пк · ніколи не відвідано',
   'board.wormhole': 'кротовина · збір {tax} кр',
   'board.seen': '{distance} пк · поза досяжністю',
+  'board.seenUnknown': '{distance} пк · поза досяжністю, ніколи не відвідано',
 
   /* ---------- the row of moves ---------- */
 
@@ -510,7 +511,7 @@ market каже, що тут скільки коштує; chart каже, що �
   'screen.chart.head': 'КАРТА — від {system}, дальність {parsecs} парсеків',
   'screen.chart.inRange': 'У МЕЖАХ ДОСЯЖНОСТІ',
   'screen.chart.nothing': '  нічого в межах досяжності — спершу заправтеся',
-  'screen.chart.legend': '@ ви   O відвідано, досяжно   o досяжно   . бачено',
+  'screen.chart.legend': '@ ви   O відвідано, досяжно   o досяжно   . бачено   · поза досяжністю',
   'screen.chart.unvisited': 'ніколи не відвідано',
   'screen.chart.fuel': '{fuel} пального',
   'screen.chart.wormhole': 'кротовина, {tax} кр',

@@ -177,6 +177,7 @@ not produce this turn.
   'board.reachableUnknown': '{fuel} fuel · {distance} pc · never visited',
   'board.wormhole': 'wormhole · {tax} cr toll',
   'board.seen': '{distance} pc · out of range',
+  'board.seenUnknown': '{distance} pc · out of range, never visited',
 
   /* ---------- the row of moves ---------- */
 
@@ -507,7 +508,7 @@ not produce this turn.
   'screen.chart.head': 'CHART — from {system}, range {parsecs} parsecs',
   'screen.chart.inRange': 'IN RANGE',
   'screen.chart.nothing': '  nothing in range — refuel first',
-  'screen.chart.legend': '@ you   O visited, in range   o in range   . seen',
+  'screen.chart.legend': '@ you   O visited, in range   o in range   . seen   · out of range',
   'screen.chart.unvisited': 'never visited',
   'screen.chart.fuel': '{fuel} fuel',
   'screen.chart.wormhole': 'wormhole, {tax} cr',

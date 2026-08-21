@@ -32,6 +32,12 @@
       ]
     },
     {
+      "key": "play",
+      "type": "button",
+      "label": "PLAY",
+      "hint": "put the run in progress on screen in this chat, and read the position out"
+    },
+    {
       "key": "newGame",
       "type": "button",
       "label": "NEW GAME",

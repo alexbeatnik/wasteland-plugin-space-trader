@@ -183,7 +183,11 @@ test('the chart draws a field and offers every target as a button', async () => 
   for (const choice of result.choices) {
     assert.match(choice.id, /^warp:\d+$/);
     assert.match(choice.label, /^Warp to /);
-    assert.match(choice.note, /fuel/);
+    // A wormhole is priced in credits and costs no fuel at all, and about one
+    // start in two hundred has its far end inside the tank as well — rare
+    // enough that this line read as a flaky suite rather than as the one leg
+    // the fuel does not explain. It is the fact the test below is about.
+    assert.match(choice.note, /fuel|wormhole/);
   }
 });
 
@@ -473,8 +477,13 @@ test('a wormhole in range is marked as one, not priced in fuel', async () => {
   const app = await started();
   const state = JSON.parse(app.document.save);
   const here = state.systems[state.currentSystem];
-  const near = state.systems.find((sys) => sys.id !== here.id
-    && Math.hypot(sys.x - here.x, sys.y - here.y) <= state.ship.fuel);
+  // The nearest, rather than the first in range the array happens to hold: the
+  // briefing names six destinations and the seventh is cut, so a wormhole hung
+  // on a system that sorts eighth is a test that fails on the galaxy rather
+  // than on the code.
+  const near = state.systems
+    .filter((sys) => sys.id !== here.id && Math.hypot(sys.x - here.x, sys.y - here.y) <= state.ship.fuel)
+    .sort((a, b) => Math.hypot(a.x - here.x, a.y - here.y) - Math.hypot(b.x - here.x, b.y - here.y))[0];
   here.wormholeTo = near.id;
   app.document.save = JSON.stringify(state);
 
@@ -500,7 +509,19 @@ test('warp event, crew incident, and black hole notes are rendered with paramete
 
   // Perform a jump and simulate notes from blackHole, event, and incident
   const result = await app.move(`warp ${target.nameId}`);
-  assert.equal(result.ok, true);
+  /**
+   * Not `ok`, because a jump can end with the ship destroyed.
+   *
+   * Turn one, a Flea, and no panel to fight from — the encounters settle
+   * themselves and about one run in twenty the hull reaches zero on the way.
+   * The engine answers a run that has ended with a refusal, which is right, and
+   * this test asserted otherwise: a suite that goes red on a twentieth of its
+   * runs with nothing changed teaches everybody to press the button again.
+   *
+   * The jump is what has to have happened, and it did either way. What is being
+   * checked is the words that came back from it.
+   */
+  assert.ok(result.ok || /did not survive/i.test(result.summary), result.summary);
   assert.doesNotMatch(result.summary, /event\.blackHole\.body/);
   assert.doesNotMatch(result.summary, /\{dmg\}/);
   assert.doesNotMatch(result.summary, /\{value\}/);

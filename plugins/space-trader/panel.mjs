@@ -129,6 +129,14 @@ export function reachable(engine, state) {
  * still worth drawing, because knowing that Nyle is two hops beyond the fuel is
  * how a route gets planned, but a button answering "the tank will not reach it"
  * is a button that should not have been drawn.
+ *
+ * Which is why the window is the whole neighbourhood and not the tank. It used
+ * to hold what the fuel reached plus the systems this run had already been to,
+ * and that is a chart that empties out exactly when it is needed: fly in on
+ * fumes and the stars a hop away — the ones the next tank of fuel buys —
+ * vanished, because a place nobody has been to yet had nothing to draw it for.
+ * They are drawn now, unpressable and labelled as out of range, and the
+ * drawing only changes when the ship moves.
  */
 export function board(engine, dict, state, image = '') {
   const here = engine.currentSystem(state);
@@ -136,10 +144,18 @@ export function board(engine, dict, state, image = '') {
   const reach = range * CHART_REACH;
   const inRange = new Map(reachable(engine, state).map((entry) => [entry.sys.id, entry]));
 
+  // The wormhole's far end is pulled in from wherever it lies: it is a
+  // destination that can be pressed, and the range is not what explains it.
+  const near = ({ sys, distance }) =>
+    sys.id === here.id || inRange.has(sys.id) || here.wormholeTo === sys.id || distance <= reach;
+  // Ranked before it is cut, so the host's ceiling takes a star off the rim
+  // rather than somewhere the ship could be flying to this minute.
+  const rank = ({ sys }) => (sys.id === here.id ? 0 : inRange.has(sys.id) || here.wormholeTo === sys.id ? 1 : 2);
+
   const shown = state.systems
     .map((sys) => ({ sys, distance: engine.systemDistance(here, sys) }))
-    .filter(({ sys, distance }) => sys.id === here.id || inRange.has(sys.id) || (sys.visited && distance <= reach))
-    .sort((a, b) => a.distance - b.distance)
+    .filter(near)
+    .sort((a, b) => rank(a) - rank(b) || a.distance - b.distance)
     .slice(0, MAX_POINTS);
 
   const points = shown.map(({ sys, distance }) => {
@@ -158,7 +174,9 @@ export function board(engine, dict, state, image = '') {
               tech: sys.techLevel,
             })
             : t('board.reachableUnknown', { fuel: leg.fuel, distance: Math.round(distance) })
-          : t('board.seen', { distance: Math.round(distance) });
+          : sys.visited
+            ? t('board.seen', { distance: Math.round(distance) })
+            : t('board.seenUnknown', { distance: Math.round(distance) });
 
     return {
       id: `sys-${sys.id}`,

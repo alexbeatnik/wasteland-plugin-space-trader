@@ -362,6 +362,40 @@ test('the chart is a board, and only what the tank reaches is pressable', async 
   }
 });
 
+test('the chart keeps its stars when the tank runs dry, and offers none of them', async () => {
+  const app = await flying();
+  const full = app.drawn.board.points.map((point) => point.id).sort();
+  assert.ok(app.drawn.board.points.some((point) => point.action), 'a full tank reached nowhere');
+
+  const state = app.game;
+  const here = state.systems[state.currentSystem];
+  state.ship.fuel = 0;
+  app.rewrite(state);
+  await app.act('market');
+
+  const dry = app.drawn.board;
+  // Under the host's ceiling nothing is being dropped for room, so an empty
+  // tank has to draw the same neighbourhood a full one did. This is the whole
+  // point: the chart is where the next tank of fuel gets spent, and it used to
+  // go dark at the one moment that decision was being made.
+  if (full.length < 24) {
+    assert.deepEqual(dry.points.map((point) => point.id).sort(), full, 'the chart lost stars when the fuel did');
+  }
+  const stranded = dry.points.filter((point) => !point.here && point.id !== `sys-${here.wormholeTo}`);
+  assert.ok(stranded.length, 'nothing was drawn beyond the ship');
+  for (const point of stranded) {
+    assert.equal(point.action, '', 'a jump was offered on an empty tank');
+    assert.match(point.note, /out of range/);
+    // Nowhere has been visited on turn one, which is exactly the case the old
+    // filter dropped: a star with no history had nothing to draw it for.
+    assert.match(point.note, /never visited/);
+  }
+  assert.ok(
+    !dry.links.some((link) => link.tone === 'good'),
+    'a line was drawn to somewhere the fuel will not reach',
+  );
+});
+
 test('pressing a system makes the jump, and the panel moves with the ship', async () => {
   const app = await flying();
   const before = app.game;
@@ -613,6 +647,72 @@ test('a saved run is drawn again when the plugin comes back', async () => {
   await again.settle();
   assert.ok(again.drawn, 'the panel did not come back after a restart');
   assert.ok(again.drawn.title.includes('Jameson'));
+});
+
+/**
+ * PLAY, and the thing it replaced.
+ *
+ * A save is one run and a window is many conversations, so the ordinary way to
+ * find a game was to open a chat that had never drawn it — nothing on the
+ * panel, and the only way in was to type at the model and hope it passed the
+ * words along. That is a turn and a model call spent on something that is not a
+ * move, and it fails in the way a small model fails: silently, by answering the
+ * request itself.
+ */
+test('PLAY puts a run that is somewhere else on screen here, and reads the position out', async () => {
+  const app = await flying();
+  const day = app.game.day;
+  await app.act('quit');
+
+  // A second window on the same document is what another conversation is.
+  const chat = harness({ document: app.document });
+  await chat.settle();
+  assert.equal(chat.drawn, null, 'the panel arrived somewhere nobody asked for it');
+
+  const played = await chat.press('play');
+  assert.match(played.status, /Jameson/);
+  // Sent as words, so the model briefs the player rather than being left to
+  // work out on its own that a game has appeared.
+  assert.match(played.submit, /resume/i);
+  assert.equal(chat.document.closed, false);
+  assert.equal(chat.game.day, day, 'a different run came back');
+  assert.ok(chat.drawn.actions.some((move) => move.id === 'market'), "the game's own row is not on the panel");
+});
+
+test('PLAY on a run already up is a briefing, not a new commander', async () => {
+  const app = await flying();
+  const day = app.game.day;
+
+  const played = await app.press('play');
+  assert.match(played.submit, /resume/i);
+  assert.equal(played.cards ?? false, false, 'a run in progress was offered a new commander');
+  assert.equal(app.game.day, day);
+  assert.equal(app.game.commanderName, 'Jameson');
+});
+
+test('PLAY with nothing saved asks who is flying rather than shrugging', async () => {
+  const app = harness();
+  await app.settle();
+
+  const played = await app.press('play');
+  assert.equal(played.cards, true);
+  assert.ok(app.drawn.cards, 'no cards were dealt');
+  // Asked, not answered: a button that made a commander on its own would be
+  // NEW GAME with the question taken out.
+  assert.equal(app.game, null, 'a commander was made without anybody being asked');
+});
+
+test('PLAY leaves a half-made commander where it is', async () => {
+  const app = await flying();
+  await app.press('newGame');
+  await app.act('background-pilot');
+
+  const played = await app.press('play');
+  assert.equal(played.cards, true, 'an open question was answered from the side');
+  assert.equal(app.document.setup.background, 'pilot');
+  // The run underneath is still there — nothing is written over until a name
+  // is sent — so there is still a way back out of the chooser.
+  assert.equal(app.game.commanderName, 'Jameson');
 });
 
 test('a game closed yesterday does not come back on screen by itself', async () => {

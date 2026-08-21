@@ -1164,13 +1164,13 @@ export function activate(ctx) {
    * old language, and nothing else would redraw them until the next turn.
    */
   /**
-   * The buttons in the left panel: NEW GAME, SAVE, LOAD.
+   * The buttons in the left panel: PLAY, NEW GAME, SAVE, LOAD.
    *
    * They are there rather than on the row above the composer because that row
-   * only exists while a game is drawn, and the moment LOAD GAME is for is the
-   * one where nothing is. The app claims the panel for the open conversation
-   * after this returns, so painting a scene here is what makes the game appear
-   * in the chat the button was pressed from.
+   * only exists while a game is drawn, and the moment PLAY and LOAD GAME are
+   * for is the one where nothing is. The app claims the panel for the open
+   * conversation after this returns, so painting a scene here is what makes the
+   * game appear in the chat the button was pressed from.
    *
    * Nothing destructive happens on the press itself. NEW GAME asks who is
    * flying, and SAVE and LOAD open the list of slots — the slot is the thing
@@ -1180,6 +1180,52 @@ export function activate(ctx) {
   ctx.onButton(async (key) => {
     await load();
     const doc = (await ctx.state.get()) ?? {};
+
+    /**
+     * PLAY: the run already in the document, in the conversation being had.
+     *
+     * A game is one save and many chats. Opening a new one left the run with
+     * nowhere to be drawn and the only way back in was to type at the model and
+     * hope it passed the words along — a turn, a model call and a relay, spent
+     * on something that is not a move. A press claims the panel, which is the
+     * whole of what "put the game here" means.
+     *
+     * It submits rather than settling, because coming back aboard is exactly
+     * when the position is worth reading out, and `space_trader` answers that
+     * phrase with the briefing. Same words the menu's LOAD GAME sends, so the
+     * two ways back in read the same in the transcript.
+     *
+     * With nothing saved at all this asks who is flying, rather than answering
+     * "there is nothing to play" — a press that costs one and gives nothing
+     * back. Nothing is written over: the commander is not made until a name is
+     * sent, which is what NEW GAME relies on too.
+     */
+    if (key === 'play') {
+      armedRestart = false;
+      askingAmount = null;
+      deckOpen = false;
+      // The question of who is flying is still open, so it is put back up
+      // rather than answered from here.
+      if (doc.setup) {
+        await paint(doc);
+        return { status: t('ui.newRun'), cards: true };
+      }
+      const held = await read();
+      if (!held) {
+        await save({ ...doc, setup: {} });
+        return { status: t('ui.newRun'), cards: true };
+      }
+      // The panel arrives on the market rather than on whatever sheet was open
+      // in the chat this was last drawn in.
+      sheetView = 'market';
+      // Written whether or not it was closed: a run that is merely somewhere
+      // else is not closed, and the flag is what the menu is drawn from.
+      await save({ ...doc, closed: false });
+      return {
+        status: t('ui.resumedAs', { commander: held.commanderName, day: held.day }),
+        submit: t('move.resume.submit'),
+      };
+    }
 
     if (key === 'newGame') {
       armedRestart = false;
