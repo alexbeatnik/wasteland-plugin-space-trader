@@ -336,6 +336,211 @@ export function marketDigest(engine, dict, state) {
   return `${head}\n${parts.join('\n')}`;
 }
 
+/* ---------- one market against the others in range ---------- */
+
+/**
+ * How many markets the comparison holds.
+ *
+ * The tank is the real ceiling and it rarely reaches more than a handful of
+ * places this run has been to. This is the printed table's own: a dozen
+ * destinations is a spreadsheet, and what the screen is for is a decision.
+ */
+const COMPARE_SYSTEMS = 8;
+
+/**
+ * The markets in range this run has actually been to.
+ *
+ * Only visited ones, and that is the whole honesty of it: the engine knows what
+ * every system in the galaxy pays and the run does not. Quoting a price from a
+ * planet nobody has flown to would be handing over what the player has not
+ * earned — the chart says "never visited" about those for exactly the same
+ * reason, and the market's own deck has always priced its cards this way.
+ */
+export function knownMarkets(engine, state, limit = COMPARE_SYSTEMS) {
+  return destinations(engine, state, 64).filter((leg) => leg.sys.visited).slice(0, limit);
+}
+
+/** Where a commodity pays most, of those markets. */
+export function bestMarketFor(good, legs) {
+  let best = null;
+  for (const leg of legs) {
+    const price = leg.sys.sellPrice?.[good] ?? 0;
+    if (price > 0 && (!best || price > best.price)) best = { price, sys: leg.sys, fuel: leg.fuel };
+  }
+  return best;
+}
+
+/**
+ * The comparison itself, as one entry per commodity worth comparing.
+ *
+ * Pure and exported, because three things ask this question — the printed
+ * table, what the model is told, and the list behind the panel's sheet — and
+ * three copies of "where does this pay more" is three places for them to
+ * answer differently. The whole file exists for that reason.
+ *
+ * `here` is what this planet does about the commodity, and which side of the
+ * trade that is depends on the hold: cargo aboard is weighed against what this
+ * planet bids for it, and everything else against what it costs to pick up.
+ * `margin` is what a bay is worth carrying rather than settling for here, and
+ * it is `null` rather than zero where there is nothing to compare — a planet
+ * that does not buy furs has not offered a poor price for them.
+ */
+export function priceLeads(engine, dict, state, legs = null) {
+  const markets = legs ?? knownMarkets(engine, state);
+  const sys = engine.currentSystem(state);
+  const leads = [];
+
+  for (const id of engine.GOOD_IDS) {
+    const aboard = state.ship.cargo?.[id] ?? 0;
+    const stock = sys.qty?.[id] ?? 0;
+    const costs = stock > 0 ? engine.marketBuyPrice(state, id) : 0;
+    // Neither in the hold nor on the shelf here: there is no move to compare,
+    // and eighteen commodities is a screenful of rows that are not one.
+    if (aboard <= 0 && costs <= 0) continue;
+
+    const carrying = aboard > 0;
+    const here = carrying ? sys.sellPrice?.[id] ?? 0 : costs;
+    const best = bestMarketFor(id, markets);
+    leads.push({
+      id,
+      good: dict.goodName(id),
+      carrying,
+      aboard,
+      stock,
+      here,
+      best,
+      margin: best && here > 0 ? best.price - here : null,
+    });
+  }
+
+  // Best first, and the rows with nothing to compare last rather than mixed in
+  // among the losses: "nobody here buys it" is not a worse deal than a deal, it
+  // is the absence of one.
+  return leads.sort((a, b) => (b.margin ?? -Infinity) - (a.margin ?? -Infinity));
+}
+
+/** What one commodity's row says, on whichever side of the trade it is. */
+function leadNote(lead) {
+  const parts = [];
+  if (lead.carrying) {
+    parts.push(t('screen.compare.aboard', { n: lead.aboard }));
+    parts.push(lead.here > 0 ? t('screen.compare.bid', { price: digits(lead.here) }) : t('screen.compare.noBid'));
+  } else {
+    parts.push(t('screen.compare.costs', { price: digits(lead.here), stock: lead.stock }));
+  }
+  parts.push(lead.best
+    ? t('screen.compare.best', {
+      system: lead.best.sys.nameId,
+      price: digits(lead.best.price),
+      fuel: lead.best.fuel,
+    })
+    : t('screen.compare.nowhere'));
+  if (lead.margin !== null) {
+    parts.push(lead.margin > 0
+      ? t('screen.compare.up', { margin: money(lead.margin) })
+      : lead.margin < 0
+        ? t('screen.compare.down', { margin: money(-lead.margin) })
+        : t('screen.compare.level'));
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * This planet's prices against everywhere in range, printed.
+ *
+ * What a trader is actually doing is comparing two markets, and until now the
+ * only place that comparison existed was the six cards the deck deals: the top
+ * of the answer, with no way to see the rest of it and nothing a model could
+ * read. This is the whole of it, and it is a screen rather than a panel because
+ * it is the sort of thing worth scrolling back to twenty turns later, when the
+ * question is what ore was fetching at Nyle.
+ *
+ * Three blocks, in the order the decisions come: what the hold is worth if it
+ * is carried rather than sold here, what is worth picking up here, and the
+ * markets themselves with the best single run to each. An empty one is left out
+ * rather than printed as a heading with nothing under it.
+ */
+export function compare(engine, dict, state) {
+  const sys = engine.currentSystem(state);
+  const inRange = destinations(engine, state, 64);
+  const markets = knownMarkets(engine, state);
+  const head = t('screen.compare.head', { system: sys.nameId, n: markets.length });
+
+  if (!inRange.length) return `${head}\n\n${t('screen.compare.stranded')}`;
+  if (!markets.length) return `${head}\n\n${t('screen.compare.nothingKnown')}`;
+
+  const leads = priceLeads(engine, dict, state, markets);
+  const lines = [head];
+  const unseen = inRange.length - markets.length;
+  if (unseen > 0) lines.push(t('screen.compare.unvisited', { n: unseen }));
+
+  for (const [heading, rows] of [
+    ['screen.compare.hold', leads.filter((lead) => lead.carrying)],
+    ['screen.compare.buy', leads.filter((lead) => !lead.carrying)],
+  ]) {
+    if (!rows.length) continue;
+    lines.push('', t(heading));
+    for (const lead of rows) lines.push(`  ${pad(lead.good, 14)}${leadNote(lead)}`);
+  }
+
+  lines.push('', t('screen.compare.markets'));
+  for (const leg of markets) {
+    // The leads are already best first, so the first one pointing at a system
+    // is the best run there is to it.
+    const run = leads.find((lead) => lead.best?.sys.id === leg.sys.id && (lead.margin ?? 0) > 0);
+    const about = t('screen.compare.marketRow', {
+      fuel: leg.fuel,
+      tech: leg.sys.techLevel,
+      economy: economyName(engine, dict, leg.sys),
+    });
+    const run_ = run ? t('screen.compare.bestRun', { good: run.good, margin: money(run.margin) }) : t('screen.compare.noRun');
+    lines.push(`  ${pad(leg.sys.nameId, 14)}${about} · ${run_}`);
+  }
+
+  lines.push('', t('screen.compare.foot'));
+  return lines.join('\n');
+}
+
+/**
+ * The same comparison, for the model.
+ *
+ * Sent on the turn that asked for it and never in the briefing, for the reason
+ * `marketDigest` gives: a table of prices on every turn of every conversation
+ * is exactly what the context budget is for. In ids, so what comes back out of
+ * the model is `buy 10 water` and not a commodity the parser has never heard
+ * of.
+ *
+ * It carries the screen's caveat in as many words, because a model told only
+ * the prices answers as though it also knew the ones it was not told: these are
+ * the systems this run has been to, and the rest are unknown.
+ */
+export function compareDigest(engine, dict, state) {
+  const sys = engine.currentSystem(state);
+  const markets = knownMarkets(engine, state);
+  if (!markets.length) return t('screen.compare.digest.none', { system: sys.nameId });
+
+  const rows = priceLeads(engine, dict, state, markets)
+    .filter((lead) => lead.best)
+    .map((lead) => t('screen.compare.digest.row', {
+      id: lead.id,
+      side: lead.carrying
+        ? t('screen.compare.digest.carrying', { n: lead.aboard, here: lead.here || 0 })
+        : t('screen.compare.digest.onSale', { here: lead.here }),
+      system: lead.best.sys.nameId,
+      price: lead.best.price,
+      fuel: lead.best.fuel,
+      margin: lead.margin === null ? t('screen.compare.digest.noMargin') : lead.margin,
+    }));
+
+  return [
+    t('screen.compare.digest.head', {
+      system: sys.nameId,
+      systems: markets.map((leg) => `${leg.sys.nameId} (${leg.fuel})`).join(', '),
+    }),
+    ...rows,
+  ].join('\n');
+}
+
 /**
  * What the model is told about the position, every turn.
  *

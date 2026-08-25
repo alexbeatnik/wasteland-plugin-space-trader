@@ -18,7 +18,7 @@
  * the engine: it knows that `water` is Water and that `flea` is a Flea. A label
  * built from the wrong one is the bug this comment exists to prevent.
  */
-import { bodyKind, bodyName, economyName, siteYield, techName } from './view.mjs';
+import { bodyKind, bodyName, economyName, priceLeads, siteYield, techName } from './view.mjs';
 import { clip, credits as money, group as digits, t } from './words.mjs';
 
 /** How many systems the chart may carry. The host's own ceiling is 24. */
@@ -592,9 +592,49 @@ function marketGroups(engine, dict, state) {
     });
   }
 
+  /**
+   * Where the same commodity pays more, of the markets in range.
+   *
+   * The deck deals six of these as cards and stops; this is the rest of the
+   * answer, and it belongs behind the sheet for the reason the whole sheet
+   * exists — eight cards is a hand and eighteen commodities is a spreadsheet.
+   * Built by `priceLeads` rather than worked out again here, so the list, the
+   * printed table and what the model is told cannot drift into quoting three
+   * different best prices.
+   *
+   * Only rows with somewhere better to be. A commodity that is worth exactly
+   * what it is worth here is not a lead, and the market's own two lists above
+   * already say what it costs and what it fetches.
+   */
+  const inRange = priceLeads(engine, dict, state)
+    .filter((lead) => lead.best && (lead.margin ?? 0) > 0)
+    .map((lead) => ({
+      label: dict.goodName(lead.id),
+      note: lead.carrying
+        ? t('panel.row.inRange.carry', {
+          held: lead.aboard,
+          system: lead.best.sys.nameId,
+          price: digits(lead.best.price),
+          fuel: lead.best.fuel,
+          margin: money(lead.margin),
+        })
+        : t('panel.row.inRange.buy', {
+          price: digits(lead.here),
+          system: lead.best.sys.nameId,
+          sells: digits(lead.best.price),
+          fuel: lead.best.fuel,
+          margin: money(lead.margin),
+        }),
+      tone: 'good',
+      // Buying it is a move that can be made from here; carrying what is
+      // already aboard is a jump, and a jump is pressed on the chart.
+      action: lead.carrying ? '' : `buy-${lead.id}`,
+    }));
+
   return [
     { label: t('panel.group.onsale'), empty: t('panel.group.onsale.empty'), items: onSale },
     { label: t('panel.group.hold'), empty: t('panel.group.hold.empty'), items: held },
+    { label: t('panel.group.inRange'), empty: t('panel.group.inRange.empty'), items: inRange },
   ];
 }
 

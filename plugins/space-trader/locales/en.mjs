@@ -28,8 +28,18 @@ A playable game of Space Trader runs in this window. "I can't play games",
 here — this action draws the real thing, on a real saved game, and it costs one
 turn. Never offer to explain the game instead of opening it.
 
-"steps" picks a screen: new (start a game), status, market, chart, system,
-ship, news, jobs. Empty means status. Use it freely — these only look, and
+YOU ARE THE SHIP'S COMPUTER, and the user is the commander of the ship. Speak
+to them as one: "Captain", or by the commander's name. The register is a bridge
+report — short, factual, and offering what can be looked at rather than
+deciding anything. When the ship arrives somewhere, say where it is and what
+kind of place it is, then offer in one line what is worth a look from here: the
+news, the prices here against the markets in range, or your own advice on what
+to carry. Offer those as things to say, never as buttons, and never look
+something up and then describe it as though you had.
+
+"steps" picks a screen: new (start a game), status, market, compare (this
+planet's prices against every market the run has been to in range), chart,
+system, ship, news, jobs. Empty means status. Use it freely — these only look, and
 looking costs the user nothing.
 
 THE PANEL. While a game is running the user has a panel of their own above the
@@ -128,6 +138,14 @@ not produce this turn.
   'panel.group.jobs.empty': 'nothing accepted — contracts are taken on the planet',
   'panel.group.board': 'THE JOB BOARD',
   'panel.group.board.empty': 'this port is offering nothing today',
+  'panel.group.inRange': 'WHERE IT PAYS MORE',
+  'panel.group.inRange.empty': 'nowhere in range that this run has been to pays better',
+  'panel.row.inRange.buy': 'buy at {price} · {system} pays {sells}, {fuel} fuel · {margin} a bay',
+  'panel.row.inRange.carry': '{held} aboard · {system} pays {sells}, {fuel} fuel · {margin} a bay better than here',
+  'panel.group.inRange': 'WHERE IT PAYS MORE',
+  'panel.group.inRange.empty': 'nowhere in range that this run has been to pays better',
+  'panel.row.inRange.buy': 'buy at {price} · {system} pays {sells}, {fuel} fuel · {margin} a bay',
+  'panel.row.inRange.carry': '{held} aboard · {system} pays {sells}, {fuel} fuel · {margin} a bay better than here',
   'panel.group.news': 'REPORTED HERE',
   'panel.group.news.empty': 'nothing is being reported here',
   'panel.group.log': 'THE LOG',
@@ -501,6 +519,7 @@ not produce this turn.
   'note.nameContext': 'SPACE TRADER: the user chose {background} and is typing the commander\'s name into the game\'s own field. Do not answer the name yourself and do not invent one — the field makes the commander the moment it is sent.',
   'note.opening': 'A new game has begun. Introduce it in two or three sentences, from these facts and no others:\n{brief}\nThen offer to open the market or the chart. Do not invent cargo, prices, systems or events.',
   'note.opening.pressed': '\nThe user has already made their first move, and it was: {text}. Introduce the run and then report that.',
+  'note.arrived': 'The ship has arrived, and this is what the leg came to: {text}. Report it the way the ship\'s computer would from the bridge: where you are and what kind of place it is, and what happened on the way, in two or three sentences. Then offer, in one line, what can be looked at from here — the news, the prices here against the markets in range ("compare prices"), or your own advice on what to carry. Those are phrases for the user to say, not buttons. Do not make another move.',
   'note.moveMade': 'The move was made and the position below is the one after it: {text}. Say what happened in one or two sentences. Do not make another move.',
   'note.turnResult': '{text}',
   'note.screen': '[SPACE TRADER] The {screen} screen is on the user\'s screen.',
@@ -544,6 +563,36 @@ not produce this turn.
   'screen.market.forSale': 'buy {price} ({available} available)',
   'screen.market.sellsFor': 'sells for {price}',
   'screen.market.inHold': '{held} in hold',
+
+  /* ---------- this market against the ones in range ---------- */
+
+  'screen.compare.head': { one: 'PRICES — {system}, against {n} market in range', other: 'PRICES — {system}, against {n} markets in range' },
+  'screen.compare.unvisited': { one: '{n} more system in range has never been visited, so nothing is known about its prices.', other: '{n} more systems in range have never been visited, so nothing is known about their prices.' },
+  'screen.compare.stranded': 'The tank will not reach anywhere, so there is nothing to compare this planet against.',
+  'screen.compare.nothingKnown': 'Nowhere the tank reaches has been visited yet, so there are no prices to compare against. They come back with the ship — fly somewhere and this fills in.',
+  'screen.compare.hold': 'WHAT THE HOLD IS WORTH ELSEWHERE',
+  'screen.compare.buy': 'WHAT IS WORTH PICKING UP HERE',
+  'screen.compare.markets': 'THE MARKETS IN RANGE',
+  'screen.compare.aboard': { one: '{n} bay aboard', other: '{n} bays aboard' },
+  'screen.compare.bid': 'they pay {price} here',
+  'screen.compare.noBid': 'nobody here buys it',
+  'screen.compare.costs': '{price} cr here, {stock} for sale',
+  'screen.compare.best': '{system} pays {price}, {fuel} fuel',
+  'screen.compare.nowhere': 'nowhere known in range buys it',
+  'screen.compare.up': '{margin} a bay better',
+  'screen.compare.down': '{margin} a bay worse',
+  'screen.compare.level': 'the same either way',
+  'screen.compare.marketRow': '{fuel} fuel · tech {tech}, {economy}',
+  'screen.compare.bestRun': 'best run: {good}, {margin} a bay',
+  'screen.compare.noRun': 'nothing here is worth carrying there',
+  'screen.compare.foot': 'Every price above is what this run saw when it was last there. A market moves while you are away.',
+
+  'screen.compare.digest.head': 'PRICE COMPARISON from {system}. Markets compared, with the fuel to reach each: {systems}. These are the only systems this run has visited; prices anywhere else are unknown and must not be guessed at.',
+  'screen.compare.digest.none': 'PRICE COMPARISON from {system}: nowhere in range has been visited, so there is nothing to compare. Say so rather than guessing at prices.',
+  'screen.compare.digest.row': '{id}: {side}, best in range {system} {price} ({fuel} fuel), {margin} a bay',
+  'screen.compare.digest.carrying': '{n} aboard, bid here {here}',
+  'screen.compare.digest.onSale': 'costs {here} here',
+  'screen.compare.digest.noMargin': 'no margin to state',
 
   'screen.chart.head': 'CHART — from {system}, range {parsecs} parsecs',
   'screen.chart.inRange': 'IN RANGE',
@@ -663,6 +712,7 @@ not produce this turn.
   // relayed it comes back with those words already in the transcript.
   're.intro': '^\\s*(so where are we starting\\??|where are we starting\\??|the launch|launch)\\s*$',
   're.status': '^(status|position|where)',
+  're.compare': '^(compare|comparison|prices in range|where to sell|best price)',
   're.market': '^(market|price|trade)',
   're.chart': '^(chart|map|galaxy)',
   're.system': '^(system|orbit|bodies|moons|belt)',

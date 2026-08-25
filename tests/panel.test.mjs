@@ -384,8 +384,26 @@ test('what a bay cost is the price of one, not the price of one divided by the h
   const held = rowIn(app, 'IN THE HOLD').find((item) => item.label);
   const bid = app.game.systems[app.game.currentSystem].sellPrice[good];
   if (!bid) return; // nobody here buys it; there is no margin to state
-  const margin = Math.abs(bid - unit);
-  assert.match(held.note, new RegExp(`\\b${margin}\\b`), `the row says ${held.note}, and the margin is ${margin}`);
+  const margin = bid - unit;
+  // Thousands are grouped on the way onto the row, so a margin of 1,240 is not
+  // the digits `1240`. Read without the separator: what is under test is the
+  // number the panel worked out, not the way it prints one.
+  const said = held.note.replace(/,/g, '');
+  if (margin === 0) {
+    /**
+     * A planet bidding exactly what was paid is no margin at all, and the row
+     * says so by dropping the clause rather than by printing "0 cr above what
+     * you paid" — so there is no number to go looking for. Looking for one
+     * anyway is how this test used to fail about once in a few hundred
+     * galaxies: a bid that lands on its own asking price is rare, and is not a
+     * bug. What is worth asserting there is that the row states the bid and
+     * claims no margin.
+     */
+    assert.match(said, new RegExp(`\\b${bid}\\b`), `the row says ${held.note}, and the bid is ${bid}`);
+    assert.doesNotMatch(said, /what you paid/, `the row claims a margin it does not have: ${held.note}`);
+  } else {
+    assert.match(said, new RegExp(`\\b${Math.abs(margin)}\\b`), `the row says ${held.note}, and the margin is ${margin}`);
+  }
   assert.equal(held.tone, bid > unit ? 'good' : bid < unit ? 'bad' : '');
 });
 
@@ -692,7 +710,7 @@ test('the sheet swaps one list for another, and costs nothing', async () => {
     ['jobs', ['CONTRACTS', 'THE JOB BOARD']],
     ['news', ['REPORTED HERE', 'THE LOG']],
     // MARKET deals the deck now; the table it replaced is the deck's last card.
-    ['deal-table', ['ON SALE HERE', 'IN THE HOLD']],
+    ['deal-table', ['ON SALE HERE', 'IN THE HOLD', 'WHERE IT PAYS MORE']],
   ]) {
     const answered = await app.act(door);
     assert.equal(answered.sheet, true, `${door} did not open the sheet`);
@@ -1119,7 +1137,7 @@ test('the last card opens the whole table', async () => {
   await app.act('market');
   const opened = await app.act('deal-table');
   assert.equal(opened.sheet, true);
-  assert.deepEqual(app.drawn.groups.map((entry) => entry.label), ['ON SALE HERE', 'IN THE HOLD']);
+  assert.deepEqual(app.drawn.groups.map((entry) => entry.label), ['ON SALE HERE', 'IN THE HOLD', 'WHERE IT PAYS MORE']);
 });
 
 test('a commodity gets one card, and a sale takes it', async () => {

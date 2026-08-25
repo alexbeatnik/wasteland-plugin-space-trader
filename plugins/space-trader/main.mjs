@@ -44,6 +44,8 @@ import {
   bodyName,
   briefing,
   chart,
+  compare,
+  compareDigest,
   destinations,
   market,
   marketDigest,
@@ -294,6 +296,19 @@ export function activate(ctx) {
     ? t('note.dead')
     : `${lead ? `${lead}\n` : ''}${briefing(engine, dict, state)}`);
 
+  /**
+   * What the model is told when a leg ends.
+   *
+   * An arrival is a report from the bridge; everything else is a line about a
+   * move that was made. The difference is one cue, and it is chosen here rather
+   * than at the four places a leg can end — pressed, typed, and on either side
+   * of a fight that interrupted it — because four copies is four places for
+   * three of them to be forgotten. Which they were.
+   */
+  const legNote = (state, account, arrived) => (arrived
+    ? `${t('note.arrived', { text: account })}\n${note(state)}`
+    : `${account}\n${note(state)}`);
+
   /* ---------- the panel ---------- */
 
   /**
@@ -499,7 +514,7 @@ export function activate(ctx) {
       notes.push(dict.renderMessage(story.bodyKey, story.params));
     }
     const encounters = result.encounters ?? [];
-    return { encounters, arrival: { system: system.nameId, notes, met: encounters.length } };
+    return { encounters, arrival: { system: system.nameId, notes, met: encounters.length, arrived: true } };
   }
 
   /**
@@ -530,6 +545,7 @@ export function activate(ctx) {
         system: bodyName(dict, sys, engine.currentBody(state)),
         notes,
         met: encounters.length,
+        arrived: true,
         key: encounters.length ? 'screen.dockedMet' : 'screen.docked',
         params: { n: result.days ?? 0 },
       },
@@ -645,7 +661,12 @@ export function activate(ctx) {
     }
 
     resolveAll(state, record);
-    return { fighting: false, line: arrivedLine(state, arrival), account: jumpAccount(state, record) };
+    return {
+      fighting: false,
+      line: arrivedLine(state, arrival),
+      account: jumpAccount(state, record),
+      arrived: Boolean(arrival.arrived),
+    };
   }
 
   /**
@@ -679,11 +700,16 @@ export function activate(ctx) {
    */
   async function endFight(doc, state, record, { narrate = true } = {}) {
     const account = jumpAccount(state, record);
-    const next = withGame(doc, state, { fight: undefined, narrate: narrate ? account : undefined });
+    const next = withGame(doc, state, {
+      fight: undefined,
+      narrate: narrate ? account : undefined,
+      arrived: narrate && record.arrival?.arrived === true ? true : undefined,
+    });
     delete next.fight;
     if (!narrate) delete next.narrate;
+    if (next.arrived !== true) delete next.arrived;
     await save(next);
-    return { account, line: arrivedLine(state, record.arrival) };
+    return { account, line: arrivedLine(state, record.arrival), arrived: record.arrival?.arrived === true };
   }
 
   /**
@@ -710,7 +736,7 @@ export function activate(ctx) {
       return {
         ok: !isWrecked(state),
         summary: `${ended.account}\n\n${position(state)}`,
-        feedback: `${ended.account}\n${note(state)}`,
+        feedback: legNote(state, ended.account, ended.arrived),
       };
     }
 
@@ -725,7 +751,7 @@ export function activate(ctx) {
       return {
         ok: true,
         summary: `${ended.account}\n\n${position(state)}`,
-        feedback: `${ended.account}\n${note(state)}`,
+        feedback: legNote(state, ended.account, ended.arrived),
       };
     }
 
@@ -827,6 +853,24 @@ export function activate(ctx) {
         label: t('screen.sellAll', { good: dict.goodName(id) }),
         note: t('screen.sellAllNote', { held: state.ship.cargo[id], price: sys.sellPrice[id] }),
       })),
+    };
+  }
+
+  /**
+   * This planet's prices against the markets in range.
+   *
+   * The one screen whose whole content is a comparison, and the second whose
+   * feedback is worth its tokens: the table is drawn for a person, the model is
+   * not shown it, and a model asked where to sell without being told the prices
+   * does not answer "I do not know" — it invents a system and a number. The
+   * digest says in as many words which systems the run has actually been to, so
+   * the answer it gives is the one the player could have worked out themselves
+   * from the chart and their own memory.
+   */
+  function compareScreen(state) {
+    return {
+      summary: compare(engine, dict, state),
+      feedback: note(state, `${t('note.screen', { screen: 'compare' })}\n${compareDigest(engine, dict, state)}`),
     };
   }
 
@@ -987,16 +1031,21 @@ export function activate(ctx) {
   async function narrated(doc, state) {
     const told = String(doc.narrate);
     const opening = doc.opening === true;
-    const next = withGame(doc, state, { narrate: undefined, opening: undefined });
+    const arrived = doc.arrived === true;
+    const next = withGame(doc, state, { narrate: undefined, opening: undefined, arrived: undefined });
     delete next.narrate;
     delete next.opening;
+    delete next.arrived;
     await save(next);
     return {
       ok: !isWrecked(state),
       summary: `${told}\n\n${position(state)}`,
       feedback: opening
         ? openingNote(state, doc.background) + t('note.opening.pressed', { text: told })
-        : `${t('note.moveMade', { text: told })}\n${note(state)}`,
+        // An arrival is the moment the computer speaks up, and it is not the
+        // report that fuel was bought: where the ship is, what happened on
+        // the way, and what can be looked at from here.
+        : `${t(arrived ? 'note.arrived' : 'note.moveMade', { text: told })}\n${note(state)}`,
     };
   }
 
@@ -1196,19 +1245,24 @@ export function activate(ctx) {
       if (patterns('system').test(want)) boardView = 'system';
       else if (patterns('chart').test(want)) boardView = 'chart';
 
-      const screen = patterns('market').test(want)
-        ? marketScreen(state)
-        : patterns('system').test(want)
-          ? systemScreen(state)
-          : patterns('chart').test(want)
-            ? chartScreen(state)
-            : patterns('news').test(want)
-              ? newsScreen(state)
-              : patterns('ship').test(want)
-                ? shipScreen(state)
-                : patterns('jobs').test(want)
-                  ? questScreen(state)
-                  : { summary: position(state) };
+      // `compare` is asked before `market`, and has to be: in Ukrainian the
+      // market answers to «ціни», and "compare prices" is a different question
+      // about the same word.
+      const screen = patterns('compare').test(want)
+        ? compareScreen(state)
+        : patterns('market').test(want)
+          ? marketScreen(state)
+          : patterns('system').test(want)
+            ? systemScreen(state)
+            : patterns('chart').test(want)
+              ? chartScreen(state)
+              : patterns('news').test(want)
+                ? newsScreen(state)
+                : patterns('ship').test(want)
+                  ? shipScreen(state)
+                  : patterns('jobs').test(want)
+                    ? questScreen(state)
+                    : { summary: position(state) };
 
       // Looking costs nothing and changes nothing, but it is a turn the game
       // acted in — which is what claims the panel for this conversation.
@@ -1372,7 +1426,7 @@ export function activate(ctx) {
         return {
           ok: !dead,
           summary: `${done.account}\n\n${position(state)}`,
-          feedback: `${done.account}\n${note(state)}`,
+          feedback: legNote(state, done.account, done.arrived),
         };
       };
 
@@ -2180,7 +2234,7 @@ export function activate(ctx) {
         // marker that started the jump was on the chart, so the chart is the
         // dialog that is open, and it is not the chart's fight to draw.
         if (jumped.fighting) return { status: jumped.line, board: true };
-        await save(withGame(doc, state, { narrate: jumped.account }));
+        await save(withGame(doc, state, { narrate: jumped.account, arrived: jumped.arrived }));
         return { status: jumped.line, submit: t('move.warp.submit', { system: target.nameId }) };
       }
 
@@ -2209,7 +2263,7 @@ export function activate(ctx) {
           return { status: err.message };
         }
         if (crossed.fighting) return { status: crossed.line, board: true };
-        await save(withGame(doc, state, { narrate: crossed.account }));
+        await save(withGame(doc, state, { narrate: crossed.account, arrived: crossed.arrived }));
         return { status: crossed.line, submit: t('move.fly.submit', { place }) };
       }
 

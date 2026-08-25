@@ -173,10 +173,31 @@ the two price lists behind the sheet, a row opens the field, and the buying is t
 planet's market uses. It costs no turn either. Firing on them shuts it — the hint on FIRE says so
 before the press, because it does not come back: they become an enemy and you become a pirate.
 
+**The comparison — `compare prices`.** The one thing a trader is actually doing is comparing two
+markets, and until now the only place that comparison existed was the six cards the market deals:
+the top of the answer, with no way to see the rest and nothing the model could read. `compare
+prices` prints the whole of it — what the hold is worth carried somewhere else rather than sold
+here, what is worth picking up here and where it pays more, and the markets themselves with the
+best single run to each and the fuel it costs. The same list sits behind the market's sheet, under
+WHERE IT PAYS MORE, with the commodities that have somewhere better to be.
+
+**Every price on it is one this run has seen.** Only systems the ship has actually visited are
+compared, and the screen says in as many words how many more are in range that it knows nothing
+about. The engine knows what all 140 systems pay; the run does not, and quoting a price nobody has
+flown to would be the game handing over what the player has not earned. The chart says "never
+visited" about those systems for exactly the same reason.
+
 **Starting a run.** Five cards: Pilot, Gunner, Trader, Engineer, and whoever. Each carries the
 twenty-five skill points as that trade would spend them, read out of the table itself, so a
 description cannot drift away from what the run starts with. Choosing one opens a field for the
 commander's name, and the run begins the moment it is sent.
+
+**The model answers as the ship's computer.** Not a costume — a register. The user is the commander,
+it is a bridge report rather than an essay, and what it does at the end of one is offer rather than
+decide: arrive somewhere and it says where you are and what kind of place it is, then offers in one
+line what is worth a look from here — the news, the prices here against the markets in range, or its
+own advice on what to carry. Those are phrases to say back, never buttons: the model is not told
+which buttons are on the row this turn, and naming one is how it invents them.
 
 **Typing still works for all of it.** Every move on the row is a sentence as well, in either
 language — and a screen printed into the conversation is still there twenty turns later, which the
@@ -187,6 +208,7 @@ panel is not.
 | *start a new game* | five cards, then a name, then a Flea and 1000 credits somewhere random |
 | *show me the market* | the price table for this planet, printed |
 | *what's on the chart* | the local starfield in characters, and a button per system in range |
+| *compare prices* | this planet against every market in range the run has been to |
 | *system* | everywhere in this system: what is on it, and how many days out |
 | *cross to the ice moon* | the impulse run — days off the calendar, no fuel out of the tank |
 | *mine* | a day at whatever can be dug out where the ship is docked |
@@ -434,6 +456,7 @@ messages. The game speaks two languages; the repository speaks one.
 - `tests/fight.test.mjs` — a fight put in front of the panel on purpose, and fought through it;
 - `tests/saves.test.mjs` — the slots, pressed from the left panel the way the app presses them;
 - `tests/play.test.mjs` — the same game played by typing, with no panel at all;
+- `tests/compare.test.mjs` — the comparison, on a galaxy of four stars made by hand;
 - `tests/words.test.mjs` — the two dictionaries against each other;
 - `tests/manifest.test.mjs` — the manifest is true about the directory it sits in;
 - `tests/prune.test.mjs` — what to take off a release and what to keep.
@@ -444,6 +467,27 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 
 `panel.mjs` and `view.mjs` are both pure — a state goes in, a document or a string comes out — and
 both read the same save, which is what stops the screen and the prompt describing two different runs.
+
+---
+
+## What changed in 2.5.4
+
+- **Prices, compared.** `compare prices` is a screen of its own: what the hold is worth carried
+  somewhere else rather than sold here, what is worth picking up here and where it pays more, and
+  the markets in range with the best single run to each and the fuel it costs. The same list sits
+  behind the market's sheet under WHERE IT PAYS MORE. Every price on it is one this run has seen —
+  only visited systems are compared, and the screen says how many more are in range that it knows
+  nothing about, because quoting a price nobody has flown to is the game handing over what the
+  player has not earned. The model gets the comparison as a digest of its own on the turn that
+  asked for it, which is what stops it answering "sell your ore at Nyle" about a system it was
+  never told a number for.
+- **The model answers as the ship's computer.** The user is the commander, the register is a bridge
+  report, and what it does at the end of one is offer rather than decide. Arriving somewhere now
+  says where you are and what kind of place it is, and then offers in one line what is worth a look
+  from here — the news, the prices against the markets in range, or its own advice on what to carry.
+  Those are phrases to say back and never buttons: the model is not told which buttons are on the
+  row this turn, and naming one is how it comes to invent them. A day at the workings is not an
+  arrival and is not reported as one.
 
 ---
 
