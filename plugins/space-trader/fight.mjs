@@ -33,6 +33,20 @@ const MAX_ROUNDS = 60;
 /** Lines of the fight kept on the sheet. The host draws 60 rows at most. */
 const LOG_ROWS = 30;
 
+/**
+ * Where the plot puts a ship, as a percentage across the board.
+ *
+ * Your own is pinned at the left edge and everybody else is laid out to the
+ * right of it by range, so the picture reads the way the RANGE meter does:
+ * point blank is close enough to touch, and the far edge of the board is the
+ * far edge of the engagement.
+ */
+const PLOT_YOU = 8;
+const PLOT_NEAR = 24;
+const PLOT_FAR = 94;
+/** The band a wing is spread down, so two ships at one range are two markers. */
+const PLOT_SPREAD = 60;
+
 /** The ship being fought, or nothing when the whole queue is spent. */
 export function current(fight) {
   return fight?.queue?.[fight.at] ?? null;
@@ -415,10 +429,16 @@ export function moves(engine, state, fight) {
   // gets more than one action a round and this is how you decline the rest of
   // them. Last because the app puts the digits on by position and only the
   // first nine get one — this is the move to lose a hotkey before the two above
-  // do.
+  // do, and the only thing below it is the plot, which moves nothing at all.
   if (encounter.actionsLeft > 0 && encounter.actionsLeft < encounter.actionsPerRound) {
     list.push({ id: 'fight-endTurn', label: t('fight.move.endTurn.label'), hint: t('fight.move.endTurn.hint') });
   }
+
+  // Last of all, and the first to lose a digit, because looking at the plot is
+  // not a move. It is on the row because the board is a dialog the app opens
+  // when it is asked to: without a button there is no way back into it once it
+  // has been closed, and a fight is exactly where that matters.
+  list.push({ id: 'fight-plot', label: t('fight.move.plot.label'), hint: t('fight.move.plot.hint') });
   return list;
 }
 
@@ -525,6 +545,111 @@ function groups(engine, dict, state, fight) {
     { label: t('fight.group.theirHold'), empty: t('fight.group.theirHold.empty'), items: cargo },
     { label: t('fight.group.fleet'), empty: t('fight.group.fleet.empty'), items: [...wrecks, ...flying] },
   ];
+}
+
+/**
+ * The fight, plotted.
+ *
+ * The strip and the sheet are both lists, and a wing of four with a cripple in
+ * it at three different ranges is not a list — it is a position. This is that
+ * position, drawn on the same board the star chart is drawn on: your ship at
+ * the left edge, everybody still out there laid out to the right of it by
+ * range, and a line from you to each of them.
+ *
+ * It exists because the board is one dialog and the app keeps it open across a
+ * repaint. Pressing a system on the chart is how most fights start, and the
+ * fight had no board of its own to replace it with — so the jump that began the
+ * shooting left an empty dialog over the top of it, with the hull and the wing
+ * on the strip behind. A fight is the one position in this game worth drawing,
+ * and it was the one screen that drew nothing.
+ *
+ * Only what is still flying is on it. Where a wreck ended up is not something
+ * the engine remembers, and inventing somewhere for one would be drawing a ship
+ * that is not there — how many are down is on the strip, as a tag.
+ */
+export function board(engine, dict, state, fight) {
+  const encounter = current(fight);
+  if (!encounter) return null;
+  const over = settled(encounter);
+  const ship = state.ship;
+  const maxHull = engine.maxHull(ship);
+  const shields = engine.totalShieldPower(ship);
+  const reach = Math.max(1, engine.MAX_ENGAGEMENT_RANGE);
+
+  const points = [{
+    id: 'you',
+    label: dict.shipName(ship.type),
+    note: shields > 0
+      ? t('board.fight.youShielded', {
+        hull: Math.max(0, ship.hull),
+        max: maxHull,
+        shields: Math.max(0, engine.currentShieldCharge(ship)),
+        of: shields,
+      })
+      : t('board.fight.you', { hull: Math.max(0, ship.hull), max: maxHull }),
+    x: PLOT_YOU,
+    y: 50,
+    // The marker that is where the player is, which is what `here` means on the
+    // chart too — and the reason the hull is legible without pressing anything.
+    here: true,
+    tone: meterTone(ship.hull, maxHull),
+    action: '',
+  }];
+
+  /**
+   * Everybody still out there, nearest first.
+   *
+   * The one in the sights comes from `opponent` and the rest from `reserves`,
+   * which is also where the number a press has to carry comes from: `setTarget`
+   * counts in reserves and nowhere else.
+   */
+  const flying = [
+    { ship: encounter.opponent, at: -1 },
+    ...(encounter.reserves ?? []).map((other, at) => ({ ship: other, at })),
+  ]
+    .filter((entry) => entry.ship)
+    .sort((a, b) => a.ship.distance - b.ship.distance);
+
+  // Spread down the middle rather than stacked on one line: two ships at the
+  // same range are two ships, and one drawn over the other is a wing that reads
+  // as a single pirate.
+  const step = flying.length > 1 ? Math.min(20, PLOT_SPREAD / (flying.length - 1)) : 0;
+  const top = 50 - (step * (flying.length - 1)) / 2;
+
+  const links = [];
+  flying.forEach((entry, row) => {
+    const other = entry.ship;
+    const aimed = entry.at < 0;
+    const id = aimed ? 'them' : `them-${entry.at}`;
+    const distance = Math.round(Math.max(0, other.distance));
+    points.push({
+      id,
+      label: dict.shipName(other.shipType),
+      note: over
+        ? t('board.fight.still', { hull: Math.max(0, other.hull), max: other.maxHull, distance })
+        : t(aimed ? 'board.fight.aimed' : 'board.fight.other', {
+          hull: Math.max(0, other.hull),
+          max: other.maxHull,
+          distance,
+          chance: odds(engine.playerHitChance(state, encounter, other)),
+        }),
+      x: Math.max(PLOT_NEAR, Math.min(PLOT_FAR, PLOT_NEAR + (Math.max(0, other.distance) / reach) * (PLOT_FAR - PLOT_NEAR))),
+      y: Math.max(4, Math.min(96, top + step * row)),
+      here: false,
+      tone: over ? '' : aimed ? 'bad' : 'warn',
+      // A press takes aim, and costs nothing. Its own id rather than the fleet
+      // list's, because what a press leaves open should be the thing it was
+      // pressed on — switching target from the sheet puts the sheet back, and
+      // switching it from the plot has to put the plot back.
+      action: over || aimed ? '' : `fight-aim-${entry.at}`,
+    });
+    links.push({ from: 'you', to: id, tone: over ? '' : aimed ? 'bad' : 'warn' });
+  });
+
+  // No picture behind it. The chart takes one because a starfield is scenery
+  // and the galaxy is generated afresh; a fight is a position, and anything
+  // behind it is something to read the position through.
+  return { image: '', points, links };
 }
 
 /**
@@ -640,6 +765,10 @@ export function scene(engine, dict, state, fight, { amount = null } = {}) {
     fields,
     tags,
     groups: groups(engine, dict, state, fight),
+    // The position as a picture. The board is one dialog and the app holds it
+    // open across a repaint, so a fight that drew none left the chart it was
+    // started from as an empty rectangle over the shooting.
+    board: board(engine, dict, state, fight),
     actions: moves(engine, state, fight),
   };
 

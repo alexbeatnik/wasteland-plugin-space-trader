@@ -199,6 +199,14 @@ not produce this turn.
   'board.body.mine': 'yields {resource}',
   'board.body.mineHere': 'yields {resource} · press to work it',
   'board.body.nothing': 'nothing but the view',
+
+  /* ---------- the plot, which is the board a fight is drawn on ---------- */
+
+  'board.fight.you': 'you · hull {hull}/{max}',
+  'board.fight.youShielded': 'you · hull {hull}/{max} · shields {shields}/{of}',
+  'board.fight.aimed': 'your guns are on this one · hull {hull}/{max} · {distance} out · {chance}% to hit',
+  'board.fight.other': 'hull {hull}/{max} · {distance} out · {chance}% · press to take aim',
+  'board.fight.still': 'hull {hull}/{max} · {distance} out',
   'system.fuel': 'Fuel',
 
   /* ---------- the row of moves ---------- */
@@ -343,6 +351,8 @@ not produce this turn.
   'fight.move.surrender.pirate': 'they take the cargo and let you go',
   'fight.move.surrender.police': 'a fine, and a mark on the record',
   'fight.move.surrender.bountyHunter': 'a cell, and the days it costs',
+  'fight.move.plot.label': 'PLOT',
+  'fight.move.plot.hint': 'the position — your ship, theirs, and the range between them',
   'fight.move.endTurn.label': 'HOLD FIRE',
   'fight.move.endTurn.hint': 'give up the rest of the round',
   'fight.move.plunder.label': 'BOARD THEM',

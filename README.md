@@ -140,6 +140,7 @@ get depends on who stopped you:
 | HAND OVER THE HOLD / STAND DOWN / SURRENDER | named after what they are demanding |
 | BOARD THEM | when they strike their colours, and there is room in the hold |
 | HOLD FIRE | give up the rest of a round, when the crew has more than one action in it |
+| PLOT | the position, on the board — free, and it changes nothing |
 | FIGHT IT OUT / RUN FOR IT | the rest of this one, and every other ship on the leg, without pressing |
 
 **A round is a keypress.** It costs no turn and not one token: the engine settles it, the panel
@@ -151,6 +152,18 @@ Behind the sheet: every line of the fight so far, what the other ship is carryin
 BOARD THEM would get you), and the wing if there is one — the wrecks, then everyone still flying in
 order of range, with your chance to hit each. Pressable, because switching target is free, and the
 near cripple is not always the better shot.
+
+**And on the board, the plot.** The same board the star chart is drawn on, because it is the same
+dialog: your ship pinned at the left edge with its hull on it, everybody still out there laid out
+to the right by range, and a line to each — the heavy one to whoever the guns are on. Press a ship
+to take aim; the plot stays up, because that is what was pressed. `PLOT` on the row opens it again
+once it has been closed.
+
+It exists because a fight is the one position in this game worth drawing, and it was the only
+screen that drew nothing. Pressing a system on the chart is how most fights start — so the jump
+that began the shooting left the chart's own dialog standing over it with an empty rectangle in
+it, and the hull, the range and the wing were all on the strip behind. A jump, a crossing or a
+day at the seam that runs into somebody now opens the board on the plot.
 
 **A hauler is not a gunfight.** A lone trader met in transit keeps a stall: three to six goods it
 will sell and a few it will buy, priced off the base rather than off any market — a shop three
@@ -431,6 +444,25 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 
 `panel.mjs` and `view.mjs` are both pure — a state goes in, a document or a string comes out — and
 both read the same save, which is what stops the screen and the prompt describing two different runs.
+
+---
+
+## What changed in 2.5.3
+
+- **Fixed: the jump that started a fight left an empty dialog standing over it.** The board is one
+  dialog and the app holds it open across a repaint, so the star chart a jump was pressed on was
+  still up when the jump ran into somebody — and a fight had no board of its own to put in its
+  place. What was on screen was a blank rectangle over a gunfight, with the hull, the range and the
+  wing all on the strip behind it: to see who was shooting at you, you had to close the map you had
+  just used to fly into them. A fight is the one position in this game worth drawing, and it was the
+  only screen that drew nothing.
+- **So a fight is drawn now, and the board is what draws it.** Your ship pinned at the left edge
+  with its hull and its shields on the marker, everybody still out there laid out to the right by
+  range and spread down the middle so a wing of four reads as four ships, and a line from you to
+  each — the heavy one to whoever the guns are on. Press a ship to take aim: free, not a round, and
+  the plot stays up, because the plot is what was pressed. `PLOT` on the row opens it again once it
+  has been closed, and a jump, a crossing or a day at the seam that runs into somebody opens it for
+  you.
 
 ---
 

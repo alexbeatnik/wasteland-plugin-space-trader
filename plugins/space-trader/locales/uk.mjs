@@ -206,6 +206,14 @@ market каже, що тут скільки коштує; chart каже, що �
   'board.body.mine': 'ресурс: {resource}',
   'board.body.mineHere': 'ресурс: {resource} · натисніть, щоб копати',
   'board.body.nothing': 'нічого, крім краєвиду',
+
+  /* ---------- схема бою ---------- */
+
+  'board.fight.you': 'ви · корпус {hull}/{max}',
+  'board.fight.youShielded': 'ви · корпус {hull}/{max} · щити {shields}/{of}',
+  'board.fight.aimed': 'ваші гармати на ньому · корпус {hull}/{max} · дистанція {distance} · {chance}% влучити',
+  'board.fight.other': 'корпус {hull}/{max} · дистанція {distance} · {chance}% · натисніть, щоб узяти на приціл',
+  'board.fight.still': 'корпус {hull}/{max} · дистанція {distance}',
   'system.fuel': 'Пальне',
 
   /* ---------- the row of moves ---------- */
@@ -350,6 +358,8 @@ market каже, що тут скільки коштує; chart каже, що �
   'fight.move.surrender.pirate': 'заберуть вантаж і відпустять',
   'fight.move.surrender.police': 'штраф і запис у справі',
   'fight.move.surrender.bountyHunter': 'камера і дні, які вона забере',
+  'fight.move.plot.label': 'СХЕМА',
+  'fight.move.plot.hint': 'позиція — ваш корабель, їхні, і дистанція між вами',
   'fight.move.endTurn.label': 'НЕ СТРІЛЯТИ',
   'fight.move.endTurn.hint': 'віддати решту раунду',
   'fight.move.plunder.label': 'НА АБОРДАЖ',

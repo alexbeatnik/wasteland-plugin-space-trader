@@ -182,8 +182,8 @@ test('the row of a fight fits the hotkeys it is given', async () => {
   // The app draws twelve at most and puts the digits 1-9 on the first nine by
   // position. A police encounter with a crew aboard is the longest row there
   // is: fire, run, close, open, submit, surrender, bribe, fight it out, run for
-  // it, hold fire — ten, so exactly one of them goes without a digit, and which
-  // one is decided here rather than by whatever order the list came out in.
+  // it, hold fire, plot — eleven, so two go without a digit, and which two is
+  // decided here rather than by whatever order the list came out in.
   const app = await flying();
   const state = app.game;
   state.ship.crew = ['pax', 'mira'];
@@ -200,7 +200,11 @@ test('the row of a fight fits the hotkeys it is given', async () => {
   // one that may lose one, because it only declines the rest of a round.
   assert.ok(row.indexOf('fight-auto') < 9, 'RUN FOR IT lost its hotkey');
   assert.ok(row.indexOf('fight-autoFight') < 9, 'FIGHT IT OUT lost its hotkey');
-  assert.equal(row.at(-1), 'fight-endTurn');
+  // PLOT goes first, because it only looks at the position, and HOLD FIRE
+  // second, because it only declines the rest of a round. Everything that
+  // shoots, runs or pays keeps its digit.
+  assert.equal(row.at(-1), 'fight-plot');
+  assert.equal(row.at(-2), 'fight-endTurn');
 });
 
 test('a round costs no turn and sends nothing to the model', async () => {
@@ -613,6 +617,122 @@ test('the wing is read by range, with the odds on every row and the wrecks kept'
   assert.equal(wing[1].action, 'fight-target-1');
   assert.equal(wing[2].action, 'fight-target-0');
   for (const row of wing.slice(1)) assert.match(row.note, /[0-9]+%/);
+});
+
+/**
+ * The plot, which is the board a fight is drawn on.
+ *
+ * The board is one dialog and the app holds it open across a repaint, so the
+ * chart a jump was pressed on is still up when the jump runs into somebody. A
+ * fight that drew no board of its own left that dialog empty — a blank
+ * rectangle over the top of the shooting, with the hull and the wing on the
+ * strip behind it. These hold the fix: a fight draws a position.
+ */
+test('a fight is drawn on the board, with your ship on it and everybody still flying', async () => {
+  const app = await flying();
+  const encounter = await intercept(app, {
+    shape: (enc, state) => {
+      const rng = new engine.Rng(3);
+      const near = engine.spawnEncounter('pirate', state, rng).opponent;
+      const far = engine.spawnEncounter('pirate', state, rng).opponent;
+      near.distance = 8;
+      far.distance = 34;
+      enc.reserves = [far, near];
+      enc.downed = ['flea'];
+      enc.fleetSize = 4;
+    },
+  });
+
+  const board = app.drawn.board;
+  assert.ok(board, 'a fight drew no board, so the dialog it opens in is empty');
+
+  // The ship the player is flying, which is the whole of what was missing: a
+  // hull that is only on the strip is a hull behind the dialog.
+  const you = board.points.find((point) => point.here);
+  assert.ok(you, 'the player was not on their own plot');
+  assert.equal(you.id, 'you');
+  assert.ok(you.note.includes(String(app.game.ship.hull)), 'the plot did not say what the hull was');
+  assert.equal(you.action ?? '', '', 'the player could be pressed');
+
+  // And everybody still out there, which is the count the strip only implies.
+  const them = board.points.filter((point) => !point.here);
+  assert.equal(them.length, 1 + encounter.reserves.length);
+  // In range order, so the plot reads left to right the way the RANGE meter
+  // reads, and down the middle rather than stacked: a wing drawn on one line
+  // is a wing that reads as a single pirate.
+  const across = them.map((point) => point.x);
+  assert.deepEqual(across, [...across].sort((a, b) => a - b), 'the plot is not in range order');
+  assert.equal(new Set(them.map((point) => point.y)).size, them.length, 'two ships share a line');
+  for (const point of board.points) {
+    assert.ok(point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100, 'a ship is off the board');
+  }
+
+  // A line from you to each of them, and the heavy one to whoever the guns are
+  // on. Nothing is drawn to a ship that is not on the board.
+  const drawn = new Set(board.points.map((point) => point.id));
+  assert.equal(board.links.length, them.length);
+  for (const link of board.links) {
+    assert.equal(link.from, 'you');
+    assert.ok(drawn.has(link.to), 'a line was drawn to nothing');
+  }
+  assert.equal(board.links.filter((link) => link.tone === 'bad').length, 1);
+});
+
+test('taking aim on the plot puts the plot back, not the sheet', async () => {
+  const app = await flying();
+  await intercept(app, {
+    shape: (enc, state) => {
+      const rng = new engine.Rng(3);
+      const near = engine.spawnEncounter('pirate', state, rng).opponent;
+      const far = engine.spawnEncounter('pirate', state, rng).opponent;
+      near.distance = 8;
+      far.distance = 34;
+      enc.reserves = [far, near];
+      enc.fleetSize = 3;
+    },
+  });
+
+  // The ship in the sights is not a button — it is already the target — and the
+  // index a press carries is the engine's own, counted in `reserves`.
+  const board = app.drawn.board;
+  const aimed = board.points.find((point) => point.id === 'them');
+  assert.equal(aimed.action ?? '', '', 'the ship being fought could be aimed at again');
+  const other = board.points.find((point) => point.action);
+  assert.ok(other.action.startsWith('fight-aim-'), 'the plot pressed the fleet list instead');
+  const at = Number(other.action.slice('fight-aim-'.length));
+  const wanted = app.document.fight.queue[0].reserves[at].shipType;
+
+  const took = await app.act(other.action);
+  assert.equal(took.board, true, 'taking aim on the plot shut the plot');
+  assert.equal(took.sheet ?? null, null);
+  assert.equal(app.document.fight.queue[0].opponent.shipType, wanted, 'the guns went on the wrong ship');
+  // Free, and not a round: switching target is a decision, not a move.
+  assert.equal(took.submit ?? '', '');
+});
+
+test('the plot is on the row, so it can be opened again once it is shut', async () => {
+  const app = await flying();
+  await intercept(app);
+  assert.ok(ids(app).includes('fight-plot'), 'a closed plot could not be opened again');
+
+  const opened = await app.act('fight-plot');
+  assert.equal(opened.board, true);
+  // Looking costs nothing: no round, no day, no turn.
+  assert.equal(opened.submit ?? '', '');
+  assert.ok(app.document.fight, 'looking at the plot ended the fight');
+});
+
+test('a settled fight leaves the plot up and takes the presses off it', async () => {
+  const app = await flying();
+  // Settled on the way in rather than fought to a finish: what is under test is
+  // the drawing, and fighting for it would be a test that depends on the dice.
+  await intercept(app, { shape: (enc) => { enc.status = 'oppSurrendered'; } });
+
+  const board = app.drawn.board;
+  assert.ok(board, 'the board went away the moment the shooting stopped');
+  assert.ok(board.points.length >= 2, 'the other ship was rubbed off the plot');
+  for (const point of board.points) assert.equal(point.action ?? '', '', 'a finished fight was still pressable');
+  for (const link of board.links) assert.equal(link.tone, '', 'the guns were still on somebody');
 });
 
 test('the panel says where the actions in a round come from', async () => {

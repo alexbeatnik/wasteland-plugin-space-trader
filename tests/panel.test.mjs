@@ -544,6 +544,10 @@ test('pressing a system makes the jump, and the panel moves with the ship', asyn
     // Intercepted on the way. The panel is a fight now, and nothing is sent to
     // the model — see tests/fight.test.mjs.
     assert.equal(jumped.submit ?? '', '');
+    // And the chart this was pressed on is put down in favour of the plot: it
+    // is the same dialog, and a chart is not what a fight is drawn on.
+    assert.equal(jumped.board, true);
+    assert.ok(app.drawn.board.points.some((point) => point.here), 'the fight drew no plot');
     return;
   }
   assert.match(jumped.submit, /^warp /);

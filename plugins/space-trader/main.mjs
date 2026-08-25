@@ -1817,15 +1817,35 @@ export function activate(ctx) {
         const record = doc.fight;
         const encounter = fight.current(record);
 
-        /** Switching target inside a wing. Free, and not a round. */
-        if (actionId.startsWith('fight-target-')) {
-          if (!engine.setTarget(encounter, Number(actionId.slice('fight-target-'.length)))) {
+        /**
+         * Switching target inside a wing. Free, and not a round.
+         *
+         * Two ids for one move, and the difference is only which surface asked.
+         * The fleet list is behind the sheet and the plot is on the board, and
+         * both of them are dialogs the app holds open: a press has to put back
+         * the one it came from, or taking aim from the plot would shut the plot.
+         */
+        if (actionId.startsWith('fight-target-') || actionId.startsWith('fight-aim-')) {
+          const onPlot = actionId.startsWith('fight-aim-');
+          const at = Number(actionId.slice((onPlot ? 'fight-aim-' : 'fight-target-').length));
+          if (!engine.setTarget(encounter, at)) {
             await paint(doc);
             return { status: t('ui.moveGone') };
           }
           await save(withGame(doc, state, { fight: record }));
-          return { status: t('fight.targetSwitched', { ship: fight.theirShip(dict, encounter) }), sheet: true };
+          const said = t('fight.targetSwitched', { ship: fight.theirShip(dict, encounter) });
+          return onPlot ? { status: said, board: true } : { status: said, sheet: true };
         }
+
+        /**
+         * The plot, put back on screen.
+         *
+         * Nothing is repainted: every round writes the game and painting is
+         * what writing does, so the board in the scene is already this round's.
+         * All this press is for is the app opening the dialog it is drawn in,
+         * which is the one thing a scene cannot do for itself.
+         */
+        if (actionId === 'fight-plot') return { board: true };
 
         /**
          * Their stall.
@@ -2155,7 +2175,11 @@ export function activate(ctx) {
         // Intercepted: the panel is already showing the fight, and nothing is
         // sent to the model — a round is a keypress and a keypress must not
         // cost a turn. The transcript hears about it when the shooting stops.
-        if (jumped.fighting) return { status: jumped.line };
+        //
+        // The board comes with it, and this press is the reason it has to: the
+        // marker that started the jump was on the chart, so the chart is the
+        // dialog that is open, and it is not the chart's fight to draw.
+        if (jumped.fighting) return { status: jumped.line, board: true };
         await save(withGame(doc, state, { narrate: jumped.account }));
         return { status: jumped.line, submit: t('move.warp.submit', { system: target.nameId }) };
       }
@@ -2184,7 +2208,7 @@ export function activate(ctx) {
           await paint(doc);
           return { status: err.message };
         }
-        if (crossed.fighting) return { status: crossed.line };
+        if (crossed.fighting) return { status: crossed.line, board: true };
         await save(withGame(doc, state, { narrate: crossed.account }));
         return { status: crossed.line, submit: t('move.fly.submit', { place }) };
       }
@@ -2211,7 +2235,7 @@ export function activate(ctx) {
           await paint(doc);
           return { status: err.message };
         }
-        if (dug.fighting) return { status: dug.line };
+        if (dug.fighting) return { status: dug.line, board: true };
         await save(withGame(doc, state, { narrate: dug.account }));
         return { status: dug.line, submit: t('move.mine.submit') };
       }
