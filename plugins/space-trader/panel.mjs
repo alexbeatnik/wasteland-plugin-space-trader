@@ -38,6 +38,17 @@ const LOG_ROWS = 14;
 const MAX_LABEL = 48;
 const short = (text) => clip(text, MAX_LABEL);
 /**
+ * What the host allows a title or a subtitle to be.
+ *
+ * Eighty characters, and the panel's subtitle is five facts about a planet
+ * joined with middots — which fits in English and does not in Ukrainian:
+ * "день 2 · Постіндустріальний · Високотехнологічна · Корпоративна держава ·
+ * Епідемія" is eighty-two, and the host cut the last word in half. Cut here
+ * instead, at a space, with an ellipsis that says a word was dropped.
+ */
+const MAX_TITLE = 80;
+const heading = (text) => clip(text, MAX_TITLE);
+/**
  * Where the twenty-five skill points went.
  *
  * The engine takes `skills` and has no notion of a background, so these are the
@@ -386,10 +397,14 @@ export function deals(engine, dict, state, { pictures = {}, limit = DEAL_CARDS }
     const held = state.ship.cargo?.[id] ?? 0;
     const bid = sys.sellPrice?.[id] ?? 0;
     if (held > 0 && bid > 0) {
-      // What a unit of it cost, from what the whole lot cost. Cargo that was
-      // never bought — plundered, or delivered on a contract — cost nothing,
-      // and a full-price sale is exactly what it is worth.
-      const paid = Math.round((state.buyingPrice?.[id] ?? 0) / held);
+      // What a unit of it cost. `buyingPrice` is already the average paid for
+      // one — the engine keeps it that way, dividing the running total by the
+      // hold on every purchase — so dividing again here is dividing twice, and
+      // it was: five units bought at 46 came back as "paid 9", and a card
+      // selling them at 44 read as 35 a unit of profit on a two-credit loss.
+      // Cargo that was never bought — plundered, or delivered on a contract —
+      // costs nothing, and a full-price sale is exactly what it is worth.
+      const paid = state.buyingPrice?.[id] ?? 0;
       const margin = bid - paid;
       found.push({
         kind: 'sell',
@@ -559,7 +574,8 @@ function marketGroups(engine, dict, state) {
     const aboard = ship.cargo?.[id] ?? 0;
     if (aboard <= 0) continue;
     const price = sys.sellPrice?.[id] ?? 0;
-    const paid = aboard > 0 ? Math.round((state.buyingPrice?.[id] ?? 0) / aboard) : 0;
+    // Already the average paid for one unit — see the note in `deals()`.
+    const paid = state.buyingPrice?.[id] ?? 0;
     const margin = price && paid ? price - paid : 0;
     const note = !price
       ? t('panel.row.sell.noBid', { held: aboard })
@@ -950,7 +966,7 @@ export function snapshot(engine, dict, state, options = {}) {
     // named after: a run parked on a belt four days out should not be titled as
     // though it were sitting on the landing field.
     title: t('panel.title', { commander: state.commanderName, system: bodyName(dict, sys, engine.currentBody(state)) }),
-    subtitle: wrecked
+    subtitle: heading(wrecked
       ? t('panel.subtitle.over', { ship: dict.shipName(ship.type), system: sys.nameId, day: state.day })
       : t(sys.status && sys.status !== 'uneventful' ? 'panel.subtitle.situation' : 'panel.subtitle', {
         day: state.day,
@@ -958,7 +974,7 @@ export function snapshot(engine, dict, state, options = {}) {
         economy: economyName(engine, dict, sys),
         politics: dict.politicsName(sys.politics),
         situation: dict.statusName(sys.status),
-      }),
+      })),
     meters,
     fields,
     tags,

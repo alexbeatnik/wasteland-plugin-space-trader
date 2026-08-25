@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { en } from '../plugins/space-trader/locales/en.mjs';
 import { uk } from '../plugins/space-trader/locales/uk.mjs';
-import { credits, group, has, language, patterns, setLanguage, t } from '../plugins/space-trader/words.mjs';
+import { clip, credits, group, has, language, patterns, setLanguage, t } from '../plugins/space-trader/words.mjs';
 
 const TABLES = { en, uk };
 
@@ -68,11 +68,71 @@ test('Ukrainian counts in three forms', () => {
 
 test('every pattern compiles, in both languages', () => {
   for (const [code, table] of Object.entries(TABLES)) {
+    setLanguage(code);
     for (const [key, value] of Object.entries(table)) {
       if (!key.startsWith('re.')) continue;
       assert.doesNotThrow(() => new RegExp(value, 'i'), `${code} "${key}" is not a regular expression`);
+      // And compiles the way the game actually builds it — the two tables
+      // joined, under `u`, which is stricter about escapes than `i` alone.
+      assert.doesNotThrow(() => patterns(key.slice(3)), `${code} "${key}" does not survive being built`);
     }
   }
+  setLanguage('en');
+});
+
+/**
+ * The plain alternatives of a pattern, where it has any.
+ *
+ * Only the shapes the tables are actually made of — `\b(a|b|c)\b`, `^(a|b|c)$`,
+ * `\b(a|b|c)` — because a general reader of regular expressions is not worth
+ * writing here. Anything with a nested group or a `\s*` in front answers with
+ * nothing and is left to the tests below.
+ */
+function alternatives(source) {
+  const body = String(source).match(/^(?:\\b|\^)?\(([^()]+)\)(?:\\b|\$)?$/);
+  return body ? body[1].split('|') : [];
+}
+
+test('every pattern matches the words it is made of', () => {
+  /**
+   * Compiling is not matching, and the difference was the bug.
+   *
+   * `\b` is defined against `\w`, and `\w` is `[A-Za-z0-9_]` and nothing else.
+   * So `\bнова` asks for an ASCII word character beside a letter that is not
+   * one, and eighteen Ukrainian patterns — every fight move, every way of
+   * saying "new game", "close the game", "resume" — matched nothing whatever.
+   * A game set to Ukrainian answered only the English words, and the test above
+   * was happy because all eighteen of them are perfectly good regular
+   * expressions.
+   */
+  let checked = 0;
+  for (const [code, table] of Object.entries(TABLES)) {
+    setLanguage(code);
+    for (const [key, value] of Object.entries(table)) {
+      if (!key.startsWith('re.')) continue;
+      const words = alternatives(value);
+      if (!words.length) continue;
+      const pattern = patterns(key.slice(3));
+      for (const word of words) {
+        checked += 1;
+        assert.ok(pattern.test(word), `${code} "${key}" does not match its own word "${word}"`);
+      }
+    }
+  }
+  // The sweep is only worth anything while it is reaching most of the table.
+  assert.ok(checked > 100, `only ${checked} words were checked`);
+  setLanguage('en');
+});
+
+test('a word boundary is still a boundary outside ASCII', () => {
+  // Widening `\b` must not turn it into "contains": "продовжуйте" is not
+  // "продовжуй", and a move typed as part of a longer word is not that move.
+  setLanguage('uk');
+  assert.ok(patterns('fight.on').test('продовжуй'));
+  assert.equal(patterns('fight.on').test('продовжуйте'), false);
+  assert.ok(patterns('restart').test('давай нова гра'));
+  assert.equal(patterns('restart').test('зановому'), false);
+  setLanguage('en');
 });
 
 test('the English words are listened for in a Ukrainian game too', () => {
@@ -138,6 +198,17 @@ test('a hole with nothing to put in it is left visible', () => {
   // Blanking it would read as a gap in the sentence — a bug in the game.
   // Leaving `{system}` reads as a bug in the translation, which is what it is.
   assert.equal(t('refuse.noSystem', {}), 'there is no system called "{what}" on the chart');
+});
+
+test('a line cut short is cut at a word, and drops the separator it cut after', () => {
+  assert.equal(clip('short enough', 40), 'short enough');
+  // Mid-word is what the host does and what this exists to prevent.
+  assert.equal(clip('a bounty hunter has come to collect', 20), 'a bounty hunter…');
+  // A subtitle is facts joined with middots, and cutting between two of them
+  // left "· Корпоративна держава ·…" — which reads as a sixth fact that failed
+  // to load rather than as one that did not fit.
+  assert.equal(clip('day 4 · industrial · corporate state · plague', 40), 'day 4 · industrial · corporate state…');
+  assert.doesNotMatch(clip('one · two · three · four · five', 20), /[·\s]…$/);
 });
 
 test('numbers are grouped the way each language groups them', () => {

@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.5.1.
+with the model reading the position over your shoulder. Version 2.5.2.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -431,6 +431,41 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 
 `panel.mjs` and `view.mjs` are both pure — a state goes in, a document or a string comes out — and
 both read the same save, which is what stops the screen and the prompt describing two different runs.
+
+---
+
+## What changed in 2.5.2
+
+- **Fixed: a Ukrainian game only ever listened for the English words.** Every phrase the game
+  answers to is a pattern in the two dictionaries, and every Ukrainian one is written `\b(вогонь|…)\b`
+  the way its English neighbour is. `\b` in JavaScript is defined against `\w`, and `\w` is
+  `[A-Za-z0-9_]` and nothing else — so `\bвогонь` asks for an ASCII letter beside one that is not,
+  and eighteen patterns matched nothing whatever. Every typed fight move came back as «вогонь» — це
+  не хід; «закрити гру», «продовжити гру» and «почати гру» did nothing; «нова гра» reached the game
+  only through a second pattern with no `\b` in it, and then named the commander «нова гра». The
+  tests were happy, because all eighteen are perfectly good regular expressions — compiling is not
+  matching. `\b` is now widened where the patterns are read, so a translator goes on writing it and
+  it means what it says, and the suite checks every pattern against the words it is made of.
+- **Fixed: the market said you had paid a fifth of what you paid.** The engine keeps `buyingPrice`
+  as the average paid for one *unit* — it divides the running total by the hold on every purchase —
+  and three screens divided it again. Five units bought at 46 read as "paid 9", so a planet bidding
+  44 showed as 35 credits a unit of profit on what is a two-credit loss, the card was toned green,
+  and the deck ranked it first. The one number the whole market screen turns on was wrong, and wrong
+  in the player's favour, on the deck, on the sheet's hold rows and on the printed status.
+- **Fixed: the words that ask for a game became the commander flying it.** "new game Jameson" names
+  a commander and "start a new game" does not, but only the English literal `new game` was ever
+  stripped — so "restart" launched a commander called Restart, "start over" one called start over,
+  and «нова гра» one called нова гра. Whichever pattern matched is what comes out now, in either
+  language.
+- **Fixed: the panel's subtitle was cut through the middle of a word.** Five facts about a planet
+  joined with middots fit in eighty characters in English and do not in Ukrainian, and the app cuts
+  at exactly eighty: a panel ended "· Епідем". It is cut here now, at a space, and the middot of the
+  fact that did not fit goes with it. Nothing is lost — a planet's situation is a tag on the panel
+  as well.
+- **Fixed: a run saved before there were star systems was drawn as a system it could not fly in.**
+  The moves ran the engine's migration and the panel parsed the save itself, so typing `system`
+  listed four moons while the board drew one planet and offered no way in. Both read it the same way
+  now.
 
 ---
 

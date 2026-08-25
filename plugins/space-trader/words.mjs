@@ -100,6 +100,36 @@ export function has(key) {
   return lookup(key) !== undefined;
 }
 
+/** What counts as part of a word, in any alphabet a translation may use. */
+const WORD = '\\p{L}\\p{N}_';
+/**
+ * `\b`, for languages that are not written in ASCII.
+ *
+ * JavaScript defines `\b` against `\w`, and `\w` is `[A-Za-z0-9_]` and nothing
+ * else. So `\bнова` asks for an ASCII word character on one side of a letter
+ * that is not one, and never matches anything — every Ukrainian pattern in the
+ * tables was written with `\b` around it, and not one of them ever fired. A
+ * game set to Ukrainian listened only for the English words: "нова гра" made a
+ * commander called "нова гра", and every typed fight move was refused as not a
+ * move at all.
+ *
+ * This is the same boundary written so it knows about letters: nothing wordish
+ * on one side and something wordish on the other, whichever side that is.
+ */
+const BOUNDARY = `(?:(?<![${WORD}])(?=[${WORD}])|(?<=[${WORD}])(?![${WORD}]))`;
+
+/**
+ * One pattern, with its word boundaries widened past ASCII.
+ *
+ * Done here rather than in the two tables so a translator may go on writing
+ * `\b` and have it mean what it says. Escapes are walked rather than replaced
+ * blind: `\\b` is a literal backslash followed by a `b` and is not a boundary,
+ * and a table that ever contains one must not have it rewritten underneath.
+ */
+function widen(source) {
+  return source.replace(/\\[\s\S]/g, (escape) => (escape === '\\b' ? BOUNDARY : escape));
+}
+
 /**
  * The words the game listens for, in the language in force and in English.
  *
@@ -112,8 +142,12 @@ export function patterns(key) {
   const table = TABLES[current] ?? en;
   const here = table[`re.${key}`] ?? '';
   const english = en[`re.${key}`] ?? '';
-  const both = [...new Set([here, english].filter(Boolean))].join('|');
-  return both ? new RegExp(both, 'i') : /(?!)/;
+  const both = [...new Set([here, english].filter(Boolean))].map(widen).join('|');
+  // `u` is what makes `\p{L}` above mean anything. Every pattern in the tables
+  // is written inside what it allows — no character classes, no bare braces —
+  // and a new one that is not fails loudly here rather than quietly at a
+  // keystroke.
+  return both ? new RegExp(both, 'iu') : /(?!)/;
 }
 
 /**
@@ -151,5 +185,8 @@ export function clip(text, limit = 120) {
   if (value.length <= limit) return value;
   const cut = value.slice(0, limit - 1);
   const space = cut.lastIndexOf(' ');
-  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.—-]+$/, '')}…`;
+  // The middot is in the set because the panel joins facts with it: cut between
+  // two of them, a subtitle ended "· Корпоративна держава ·…", which reads as a
+  // sixth fact that failed to load rather than as one that did not fit.
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.·—-]+$/, '')}…`;
 }

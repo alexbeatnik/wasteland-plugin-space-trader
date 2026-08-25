@@ -189,7 +189,7 @@ export function activate(ctx) {
   }
 
   /**
-   * The save.
+   * A saved game out of the string that holds it.
    *
    * The game is held as a *string* inside the plugin's document rather than as
    * the object itself, because the store pretty-prints what it is given and a
@@ -197,24 +197,36 @@ export function activate(ctx) {
    * and the quest list still to grow into it. Stringified first it is 249 KB
    * and stays there. The cost is a second parse, which is nothing next to
    * running out of room to save a game somebody is in the middle of.
+   *
+   * Its own function because there are two readers — the actions, through
+   * `read()`, and the panel, through `paint()` — and the migration below has
+   * to happen in both. It did not: the panel parsed the string itself, so a
+   * run saved before there were star systems was drawn as one planet on the
+   * map while typing "system" listed all four of its moons. Two readings of
+   * one save is exactly what the rest of this file is arranged to prevent.
    */
+  function unpack(save) {
+    const state = JSON.parse(save);
+    /**
+     * Star systems, for a save written before there were any.
+     *
+     * The engine's own migration, and it has to be called by whoever loads a
+     * game — nothing inside the engine calls it. A run saved by an older
+     * build has systems with no bodies and no star, and every question about
+     * where the ship is docked would answer "the capital" forever: the map
+     * would draw one planet and mining would never find a seam. It is a
+     * no-op the moment they are there, which is every save written since.
+     */
+    engine.ensureBodies(state.seed, state.systems ?? []);
+    return state;
+  }
+
+  /** The run in the document, or nothing — and never a throw at the turn. */
   async function read() {
     const doc = await ctx.state.get();
     if (!doc?.save) return null;
     try {
-      const state = JSON.parse(doc.save);
-      /**
-       * Star systems, for a save written before there were any.
-       *
-       * The engine's own migration, and it has to be called by whoever loads a
-       * game — nothing inside the engine calls it. A run saved by an older
-       * build has systems with no bodies and no star, and every question about
-       * where the ship is docked would answer "the capital" forever: the map
-       * would draw one planet and mining would never find a seam. It is a
-       * no-op the moment they are there, which is every save written since.
-       */
-      engine.ensureBodies(state.seed, state.systems ?? []);
-      return state;
+      return unpack(doc.save);
     } catch (err) {
       ctx.log(`the saved game could not be read — ${err.message}`);
       return null;
@@ -333,7 +345,9 @@ export function activate(ctx) {
     }
     let state;
     try {
-      state = JSON.parse(doc.save);
+      // Through `unpack` rather than `JSON.parse`, so the panel and the actions
+      // are looking at the same galaxy — see the note there.
+      state = unpack(doc.save);
     } catch {
       scene.clear();
       return;
@@ -935,6 +949,28 @@ export function activate(ctx) {
   /* ---------- the actions ---------- */
 
   const isRestart = (input) => patterns('restart').test(input);
+  /**
+   * The name typed with the request, if there was one.
+   *
+   * "new game Jameson" names a commander and "start a new game" does not — and
+   * the words that asked for the game must never become somebody's name. This
+   * used to strip the English literal `new game`, so every other phrasing that
+   * starts a run went through as the name: "restart" made a commander called
+   * Restart, and in Ukrainian "нова гра" made one called нова гра.
+   *
+   * The phrase to take out is therefore whichever pattern actually matched, in
+   * whichever language it was typed. `restart` first because its alternatives
+   * are the longer ones: taking `new ` out of "new game Jameson" would leave
+   * the commander called "game Jameson".
+   */
+  const nameFrom = (said) => {
+    let rest = said;
+    for (const key of ['restart', 'new']) {
+      const found = rest.match(patterns(key));
+      if (found) rest = `${rest.slice(0, found.index)} ${rest.slice(found.index + found[0].length)}`;
+    }
+    return rest.trim();
+  };
   const isClose = (input) => patterns('close').test(input);
   const isResume = (input) => patterns('resume').test(input);
   const isStart = (input) => patterns('start').test(input);
@@ -1119,7 +1155,7 @@ export function activate(ctx) {
       }
 
       if (patterns('new').test(want) || isRestart(said)) {
-        const named = said.replace(/^\s*new\s*(game)?\s*/i, '').trim();
+        const named = nameFrom(said);
         /**
          * Not a commander yet — a question.
          *

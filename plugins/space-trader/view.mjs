@@ -278,10 +278,13 @@ export function status(engine, dict, state) {
     lines.push('', t('screen.status.cargo'));
     for (const id of cargo) {
       const held = ship.cargo[id];
+      // The average paid for one unit, which is what the engine keeps here.
+      // Dividing it by the hold as well — which this did — turned five units
+      // bought at 46 into "paid 9".
       const paid = state.buyingPrice?.[id] ?? 0;
       const here = sys.sellPrice?.[id] ?? 0;
       const margin = here && paid
-        ? `  ${t('screen.status.cargoLine', { price: digits(here), paid: digits(Math.round(paid / Math.max(1, held))) })}`
+        ? `  ${t('screen.status.cargoLine', { price: digits(here), paid: digits(paid) })}`
         : '';
       lines.push(`  ${pad(dict.goodName(id), 14)} ${num(held, 3)}${margin}`);
     }

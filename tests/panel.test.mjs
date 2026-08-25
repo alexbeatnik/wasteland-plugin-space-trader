@@ -16,7 +16,11 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { ECONOMY_IDS, POLITICS_IDS, TECH_LEVEL_IDS, ensureBodies, systemBodies } from '../plugins/space-trader/engine.mjs';
 import { activate } from '../plugins/space-trader/main.mjs';
+
+/** The engine's own vocabularies, for the tests that need the longest word in one. */
+const engineIds = { economy: ECONOMY_IDS, politics: POLITICS_IDS, tech: TECH_LEVEL_IDS };
 
 /** Everything `ctx` is, with a panel on the end of it. */
 function harness({ settings = {}, document = {}, dataDir = '.' } = {}) {
@@ -357,6 +361,105 @@ test('what is in the hold is a row that sells it', async () => {
     await app.act('amount', '');
     assert.equal(app.game.ship.cargo[good], 0);
   }
+});
+
+test('what a bay cost is the price of one, not the price of one divided by the hold', async () => {
+  /**
+   * The engine keeps `buyingPrice` as the average paid for a *unit* — it
+   * divides the running total by the hold on every purchase — and the panel
+   * divided it again. Five units bought at 46 came back as "paid 9", so a bid
+   * of 44 read as 35 credits a unit of profit on what is a two-credit loss,
+   * the card was toned green, and the deck ranked it first. The number the
+   * whole market screen turns on was wrong in the player's favour.
+   */
+  const app = await flying();
+  const row = rowIn(app, 'ON SALE HERE')[0];
+  const good = row.action.slice('buy-'.length);
+  const unit = Number(row.note.match(/(\d+)/)[1]);
+  await app.act(row.action);
+  await app.act('amount', '3');
+  await app.act('market');
+
+  assert.equal(app.game.buyingPrice[good], unit, 'the engine did not record the unit price');
+  const held = rowIn(app, 'IN THE HOLD').find((item) => item.label);
+  const bid = app.game.systems[app.game.currentSystem].sellPrice[good];
+  if (!bid) return; // nobody here buys it; there is no margin to state
+  const margin = Math.abs(bid - unit);
+  assert.match(held.note, new RegExp(`\\b${margin}\\b`), `the row says ${held.note}, and the margin is ${margin}`);
+  assert.equal(held.tone, bid > unit ? 'good' : bid < unit ? 'bad' : '');
+});
+
+/**
+ * The situations a planet can be in.
+ *
+ * Written out because the engine keeps the table private, and because what is
+ * being tested is the longest word any of them can put on the panel. A status
+ * added to the engine and not to this list makes the test weaker rather than
+ * wrong, which is the right way round for a width check.
+ */
+const SITUATIONS = ['war', 'plague', 'drought', 'boredom', 'cold', 'cropFailure', 'lackOfWorkers'];
+
+test('the subtitle fits the width the app draws it in, in the longest words either language has', async () => {
+  /**
+   * Eighty characters is the host's ceiling and it cuts at exactly eighty,
+   * mid-word — a Ukrainian panel ended "· Епідем". The subtitle is five facts
+   * about a planet joined with middots, so the worst case is the longest name
+   * for each of them, and the galaxy is generated afresh every run: asked of
+   * whatever system this run happened to start in, this test would pass most
+   * days and fail on somebody else's machine.
+   */
+  for (const language of ['en', 'uk']) {
+    const app = await flying({ settings: { language } });
+    const dict = await import('../plugins/space-trader/i18n.mjs');
+    dict.setLocale(language);
+    const longest = (list, name) => list.reduce((a, b) => (name(a).length >= name(b).length ? a : b));
+
+    const state = app.game;
+    const sys = state.systems[state.currentSystem];
+    sys.techLevel = engineIds.tech.indexOf(longest(engineIds.tech, dict.techLevelName));
+    sys.economyType = longest(engineIds.economy, dict.economyName);
+    sys.politics = longest(engineIds.politics, dict.politicsName);
+    sys.status = longest(SITUATIONS, dict.statusName);
+    state.day = 3650;
+    app.rewrite(state);
+    await app.show('status');
+
+    assert.ok(
+      app.drawn.subtitle.length <= 80,
+      `${language}: ${app.drawn.subtitle.length} characters — "${app.drawn.subtitle}"`,
+    );
+    // Cut, it does not leave the middot of a fact that is not there behind it.
+    assert.doesNotMatch(app.drawn.subtitle, /[·\s]…$/);
+  }
+});
+
+test('a save from before there were star systems is drawn as the one the moves are made in', async () => {
+  /**
+   * `read()` runs the engine's migration and the panel parsed the save itself,
+   * so a run written by an older build had two galaxies: typing "system" listed
+   * four moons and the board drew one planet, with no way in to the system map
+   * at all. Two readings of one save is the thing this file exists to prevent.
+   */
+  const app = await flying();
+  const state = app.game;
+  for (const sys of state.systems) {
+    delete sys.bodies;
+    delete sys.starClass;
+  }
+  app.rewrite(state);
+  // Looking costs nothing and repaints, which is what puts the old save on
+  // screen.
+  await app.show('status');
+  await app.act('system');
+
+  const migrated = JSON.parse(app.document.save);
+  ensureBodies(migrated.seed, migrated.systems);
+  const expected = systemBodies(migrated.systems[migrated.currentSystem]);
+  assert.ok(expected.length > 1, 'the migration made nothing to draw');
+  assert.deepEqual(
+    app.drawn.board.points.filter((point) => point.id.startsWith('body-')).map((point) => point.id),
+    expected.map((body) => `body-${body.id}`),
+  );
 });
 
 test('a row from a hold emptied three turns ago is refused in words', async () => {

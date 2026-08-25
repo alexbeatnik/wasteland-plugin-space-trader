@@ -558,6 +558,39 @@ test('with no panel a new game is made at once, because there are no cards to pr
   assert.match(result.feedback, /cargo bays/);
 });
 
+test('the words that ask for a game do not become the commander flying it', async () => {
+  /**
+   * "new game Jameson" names a commander; "start a new game" does not. This
+   * stripped the English literal `new game` and nothing else, so every other
+   * phrasing that starts a run went through as the name — a commander called
+   * Restart, another called "start over", and in Ukrainian one called нова гра.
+   * Both triggers are translated, so the phrase to take out is whichever one
+   * actually matched.
+   */
+  const nameless = { en: 'Jameson', uk: 'Джеймсон' };
+  const asked = {
+    en: ['new game', 'start a new game', 'restart', 'start over', 'begin again'],
+    uk: ['нова гра', 'почати нову гру', 'заново', 'почати спочатку'],
+  };
+  for (const [language, phrases] of Object.entries(asked)) {
+    for (const said of phrases) {
+      const app = harness({ settings: { language } });
+      await app.show(said);
+      assert.equal(
+        JSON.parse(app.document.save).commanderName,
+        nameless[language],
+        `${language}: "${said}" named the commander after itself`,
+      );
+    }
+  }
+  // And a name that was typed with the request still survives, in either.
+  for (const [language, said] of [['en', 'new game Aurora'], ['uk', 'нова гра Аврора']]) {
+    const app = harness({ settings: { language } });
+    await app.show(said);
+    assert.equal(JSON.parse(app.document.save).commanderName, language === 'en' ? 'Aurora' : 'Аврора');
+  }
+});
+
 test('asking for the news does not start a new game', async () => {
   // `^new` matches "news". The news screen made a commander instead, and every
   // screen after it answered "choose a background".

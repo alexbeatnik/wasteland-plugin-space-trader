@@ -450,6 +450,22 @@ test('a Ukrainian fight is Ukrainian', async () => {
   assert.match(fired.status, /[а-яїієґ]/i);
 });
 
+test('a Ukrainian fight can be fought in Ukrainian words', async () => {
+  /**
+   * Everything on the row is a sentence as well, and in a Ukrainian game none
+   * of those sentences worked: the patterns are written `\b(вогонь|…)\b`, and
+   * `\b` is defined against ASCII, so every one of them matched nothing and
+   * every typed move came back as "«вогонь» — це не хід".
+   */
+  const app = await flying({ settings: { language: 'uk' } });
+  await intercept(app);
+  const before = app.document.fight.log.length;
+  const fired = await app.move('вогонь');
+  assert.equal(fired.ok, true, fired.summary);
+  assert.doesNotMatch(fired.summary, /не хід/);
+  assert.ok(app.document.fight.log.length > before, 'nothing happened in the fight');
+});
+
 /**
  * The hauler's stall.
  *
