@@ -152,6 +152,26 @@ let askingAmount = null;
  */
 let deckOpen = false;
 /**
+ * Whether the slots are being shown with no run behind them.
+ *
+ * LOAD is for the moment nothing is being played, and after a run has been
+ * thrown away there is nothing in the document to draw a panel from — which
+ * left the saved slots unreachable until another commander had been made. This
+ * is the flag that draws the menu anyway. Module scope for the reason
+ * `sheetView` is: it is where the player last looked, not anything about a run.
+ */
+let slotMenu = false;
+/**
+ * The little words in front of a place.
+ *
+ * "warp to Nyle", "dock at the belt" — and "лети до Nyle", which is how the same
+ * move is typed in the other language the game ships, and is what the panel's
+ * own Ukrainian phrasing sends. Stripped before a name is looked up, because
+ * none of them is part of anything's name.
+ */
+const LEADING_WORDS = /^(?:(?:to|at|the|a|до|на|в|у)\s+)+/iu;
+const placeNamed = (text) => String(text ?? '').trim().replace(LEADING_WORDS, '');
+/**
  * That question, but only where it was asked.
  *
  * There are two places a number is asked for now — the market on a planet and
@@ -235,6 +255,42 @@ export function activate(ctx) {
     }
   }
 
+  /**
+   * Which turn an account is owed to.
+   *
+   * A press makes its move at once and leaves the account in the document for
+   * the turn its submitted words start — see `narrated`. That turn is the next
+   * one to begin, and only that one: a model that answered the words without
+   * calling either action left the account behind, and the next thing the
+   * player typed was then answered with it instead of being carried out. "buy 2
+   * water" came back as a report of the refuelling before it, and bought
+   * nothing.
+   *
+   * So the turns are counted, and an account older than the turn it was written
+   * for is dropped rather than read out over somebody's move. One found in the
+   * document at activation is older still — the session that owed it is gone.
+   */
+  let turns = 0;
+  let owedAt = null;
+  const leftover = (() => {
+    try {
+      return ctx.state.get()?.narrate ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const accountDue = (doc) => Boolean(doc?.narrate)
+    && (owedAt === null ? doc.narrate !== leftover : turns <= owedAt + 1);
+
+  /** The document without an account nobody is waiting for any more. */
+  async function forgetAccount(doc) {
+    const next = { ...doc };
+    delete next.narrate;
+    delete next.arrived;
+    await ctx.state.set(next);
+    return next;
+  }
+
   /** The game, packed the way the document holds it. */
   function pack(state) {
     // The engine keeps every line it ever logged, newest first. Worth showing,
@@ -252,6 +308,7 @@ export function activate(ctx) {
 
   /** The document with a game in it, keeping everything else the document held. */
   function withGame(doc, state, extra = {}) {
+    if (extra.narrate) owedAt = turns;
     return {
       ...doc,
       save: pack(state),
@@ -351,11 +408,20 @@ export function activate(ctx) {
     if (doc?.setup) {
       // A run still in the document is a run that can be gone back to, and the
       // chooser has to say so: nothing is thrown away until a name is sent.
-      scene.show(setupScene(doc.setup, { canCancel: Boolean(doc.save) }));
+      scene.show(setupScene(doc.setup, {
+        canCancel: Boolean(doc.save),
+        // A way to the slots from the question itself, when there is anything
+        // in them: the chooser has no close button, and after a run has been
+        // thrown away a saved one is the only thing there is to go back to.
+        canLoad: saves.list(ctx.dataDir()).some((entry) => entry.meta),
+      }));
       return;
     }
     if (!doc?.save) {
-      scene.clear();
+      // Nothing being played and nothing being asked. The slots are still
+      // worth drawing when LOAD was what was pressed.
+      if (slotMenu) scene.show(menuScene(engine, dict, null, { slots: saves.list(ctx.dataDir()), sheetView: 'load' }));
+      else scene.clear();
       return;
     }
     let state;
@@ -449,7 +515,7 @@ export function activate(ctx) {
   function findBody(state, text) {
     // "cross to the ice moon" is how a person says it, and the article is not
     // part of anything's name.
-    const wanted = text.trim().toLowerCase().replace(/^(the|a)\s+/, '');
+    const wanted = placeNamed(text).toLowerCase();
     if (!wanted) return null;
     const sys = engine.currentSystem(state);
     const list = engine.systemBodies(sys);
@@ -825,13 +891,13 @@ export function activate(ctx) {
     ];
 
     const choices = targets.slice(0, MAX_CHOICES).map((body) => ({
-      id: `body:${body.id}`,
+      id: `body:${body.id}:${sys.id}`,
       label: t('screen.system.fly', { place: bodyName(dict, sys, body) }),
       note: t('screen.system.days', { n: engine.transitDaysTo(state, body.id) }),
     }));
     if (site) {
       choices.unshift({
-        id: 'mine:here',
+        id: `mine:here:${sys.id}:${here}`,
         label: t('screen.system.mine'),
         note: t('screen.system.yields', { resource: siteYield(dict, site) }),
       });
@@ -849,7 +915,7 @@ export function activate(ctx) {
       // has to guess what is for sale — and it does.
       feedback: note(state, `${t('note.screen', { screen: 'market' })}\n${marketDigest(engine, dict, state)}`),
       choices: held.slice(0, MAX_CHOICES).map((id) => ({
-        id: `sellall:${id}`,
+        id: `sellall:${id}:${sys.id}`,
         label: t('screen.sellAll', { good: dict.goodName(id) }),
         note: t('screen.sellAllNote', { held: state.ship.cargo[id], price: sys.sellPrice[id] }),
       })),
@@ -943,6 +1009,7 @@ export function activate(ctx) {
     sheetView = 'market';
     boardView = 'chart';
     deckOpen = false;
+    slotMenu = false;
     askingAmount = null;
     armedRestart = false;
     const clean = [...String(name ?? '')]
@@ -1095,12 +1162,15 @@ export function activate(ctx) {
     type: 'space_trader',
     async run(steps) {
       await load();
-      const doc = (await ctx.state.get()) ?? {};
+      let doc = (await ctx.state.get()) ?? {};
       const said = String(steps ?? '').trim();
       const want = said.toLowerCase();
       const state = await read();
 
-      if (doc.narrate && state) return narrated(doc, state);
+      if (doc.narrate && state) {
+        if (accountDue(doc)) return narrated(doc, state);
+        doc = await forgetAccount(doc);
+      }
 
       /**
        * There is shooting.
@@ -1198,12 +1268,16 @@ export function activate(ctx) {
        * while a live run is on screen, where the button is; allowed when the
        * game is closed or when there is no run at all, which is not a restart.
        */
-      if (state && doc.closed !== true && !isWrecked(state) && isRestart(said) && scene) {
+      // `new` as well as the longer phrasings: it is the word the prompt itself
+      // teaches for starting a game, and a model that sent it in the middle of
+      // a run used to replace the whole document with an unanswered question.
+      const wantsNew = patterns('new').test(want) || isRestart(said);
+      if (state && doc.closed !== true && !isWrecked(state) && wantsNew && scene) {
         await paint(doc);
         return { ok: false, summary: t('ui.restartIsYours'), feedback: t('note.cannotRestart') };
       }
 
-      if (patterns('new').test(want) || isRestart(said)) {
+      if (wantsNew) {
         const named = nameFrom(said);
         /**
          * Not a commander yet — a question.
@@ -1215,7 +1289,11 @@ export function activate(ctx) {
          */
         if (scene) {
           armedRestart = false;
-          await save({ setup: named ? { name: named } : {} });
+          // Asked over whatever is in the document, not instead of it. A run
+          // that was put away, or lost, is written over when the name is sent
+          // and not before — the same promise the NEW GAME button makes, so
+          // the card that walks away from the question has somewhere to go.
+          await save({ ...doc, setup: named ? { name: named } : {} });
           return { ok: true, summary: t('ui.newRun'), feedback: t('note.newRun') };
         }
         // No panel: there are no cards to press, so the run is made at once
@@ -1237,6 +1315,20 @@ export function activate(ctx) {
           summary: `${t('ui.resumed')}\n\n${position(state)}`,
           feedback: note(state, t('note.resume')),
         };
+      }
+
+      /**
+       * Put away means put away, for looking as well.
+       *
+       * Every turn of a closed game tells the model the world is gone and not
+       * to call these actions. One that called them anyway used to be handed
+       * the market table of a game nobody is playing, with the menu drawn
+       * behind it — and went on being a trading computer on the strength of
+       * it. The answer is the note it was already given, and the way back in.
+       */
+      if (doc.closed === true) {
+        await paint(doc);
+        return { ok: false, summary: t('ui.alreadyClosed'), feedback: t('note.closed') };
       }
 
       // Asked for a map, the panel changes to the one that was asked for. The
@@ -1285,22 +1377,58 @@ export function activate(ctx) {
      * buttons, and they still work. Whatever one does has to be sayable in one
      * line, because a line on the status bar is the whole of what it can
      * produce.
+     *
+     * That line is *said*, through the `status` the app hands over, as well as
+     * returned. The window draws nothing from the answer to a click — it marks
+     * the row as chosen and that is all — so a jump made from here used to
+     * happen in silence: the ship moved, the panel changed, and the sentence
+     * saying where it had arrived went nowhere.
      */
-    async choose(choiceId) {
+    async choose(choiceId, { status } = {}) {
       await load();
       const doc = (await ctx.state.get()) ?? {};
       const state = await read();
       if (!state) throw new Error('there is no game running');
 
-      const [what, argument] = String(choiceId).split(':');
+      /**
+       * A card is as old as the scroll bar allows, and the run has moved on.
+       *
+       * These buttons are outside the panel, so nothing the panel refuses is
+       * refused for them: a card from last week could sell the hold in the
+       * middle of a gunfight, jump a second time while the first jump's fight
+       * was still on screen, or fly a ship that had already been lost. Asked
+       * here, in the order the panel itself would answer.
+       */
+      if (doc.setup) throw new Error(t('ui.pickBackground'));
+      if (doc.closed === true) throw new Error(t('ui.alreadyClosed'));
+      if (doc.fight && fight.current(doc.fight)) throw new Error(t('ui.settleFirst'));
+      if (isWrecked(state)) throw new Error(t('ui.dead'));
+
+      const said = (line) => {
+        if (typeof status === 'function') status(line);
+        return { ok: true, summary: line };
+      };
+      const [what, argument, ...where] = String(choiceId).split(':');
+      /**
+       * Whether the card was dealt where the ship is now.
+       *
+       * A jump names a system and means the same thing wherever it is pressed
+       * from. Everything else on these cards is relative — the second body of
+       * *this* system, the hold sold at *this* market — so the id carries where
+       * it was drawn, and a card from three systems ago is refused instead of
+       * quietly flying to whatever happens to be second here.
+       */
+      const here = `${state.currentSystem}`;
+      const stale = () => new Error(t('ui.cardStale'));
 
       if (what === 'sellall') {
+        if (where[0] !== here) throw stale();
         const held = state.ship.cargo?.[argument] ?? 0;
         if (!held) throw new Error(t('ui.nothingToSell'));
         const result = engine.sellGood(state, argument, held);
         if (!result.ok) throw new Error(dict.t(result.error) || t('refuse.saleRefused'));
         await save(withGame(doc, state));
-        return `${messages([result.info], dict)} — ${money(state.credits)}`;
+        return said(`${messages([result.info], dict)} — ${money(state.credits)}`);
       }
 
       if (what === 'warp') {
@@ -1310,23 +1438,25 @@ export function activate(ctx) {
         // panel is where it is then fought, and this line is what says so.
         const jumped = await travel(doc, state, target);
         if (!jumped.fighting) await save(withGame(doc, state));
-        return jumped.line;
+        return said(jumped.line);
       }
 
       if (what === 'body') {
+        if (where[0] !== here) throw stale();
         const bodies = engine.systemBodies(engine.currentSystem(state));
         const target = bodies[Number(argument)];
         if (!target || target.id === engine.currentBodyIndex(state)) throw new Error(t('ui.noRouteThere'));
         const crossed = await crossTo(doc, state, target.id);
         if (!crossed.fighting) await save(withGame(doc, state));
-        return crossed.line;
+        return said(crossed.line);
       }
 
       if (what === 'mine') {
+        if (where[0] !== here || where[1] !== `${engine.currentBodyIndex(state)}`) throw stale();
         if (!engine.currentMineSite(state)) throw new Error(t('refuse.nothingToMine'));
         const dug = await dig(doc, state);
         if (!dug.fighting) await save(withGame(doc, state));
-        return dug.line;
+        return said(dug.line);
       }
 
       throw new Error('that button belongs to an older game');
@@ -1337,7 +1467,7 @@ export function activate(ctx) {
     type: 'space_trader_move',
     async run(steps) {
       await load();
-      const doc = (await ctx.state.get()) ?? {};
+      let doc = (await ctx.state.get()) ?? {};
       const said = String(steps ?? '').trim();
 
       /**
@@ -1357,12 +1487,42 @@ export function activate(ctx) {
       if (!state) {
         return { ok: false, summary: t('ui.notStarted'), feedback: t('note.noGame') };
       }
-      if (doc.narrate) return narrated(doc, state);
+      if (doc.narrate) {
+        if (accountDue(doc)) return narrated(doc, state);
+        doc = await forgetAccount(doc);
+      }
 
       // The cue from the name field, which the model relays to whichever action
       // it feels like — including this one, with nothing in it.
       const opening = await openingTurn(doc, state, said);
       if (opening) return opening;
+
+      /**
+       * No moves in a game that is not being played.
+       *
+       * Put away, the run is a save and a menu, and the model is told on every
+       * turn not to call this. One that did was obeyed: credits were spent and
+       * days passed in a game with nothing on screen but LOAD GAME. Refused
+       * with the note it already has, which names the way back in.
+       */
+      if (doc.closed === true) {
+        await paint(doc);
+        return { ok: false, summary: t('ui.alreadyClosed'), feedback: t('note.closed') };
+      }
+
+      /**
+       * And none in one that is over.
+       *
+       * The engine has no notion of a lost ship — a hull of zero is a number to
+       * it, and "repair" is a purchase like any other. Typed at a wreck docked
+       * at a shipyard it mended the hull back to full and the commander flew
+       * on, sixty credits poorer. Over means over at every door, and this was
+       * the one nobody had closed.
+       */
+      if (isWrecked(state)) {
+        await paint(doc);
+        return { ok: false, summary: t('ui.dead'), feedback: t('note.dead') };
+      }
 
       // Nothing is bought, sold or jumped while there is shooting: the ship is
       // in somebody's sights, and the moves that exist there are the fight's.
@@ -1432,7 +1592,7 @@ export function activate(ctx) {
 
       /* --- moving --- */
       if (patterns('warp').test(move)) {
-        const where = rest.replace(/^to\s+/i, '');
+        const where = placeNamed(rest);
         const target = findSystem(state, where);
         /**
          * "fly to Nyle IV" is not a jump, and the words are the same.
@@ -1469,7 +1629,7 @@ export function activate(ctx) {
        * "ice moon" on the screen should be able to say "ice moon" back.
        */
       if (patterns('flyTo').test(move)) {
-        const target = findBody(state, rest.replace(/^(to|at)\s+/i, ''));
+        const target = findBody(state, rest);
         if (!target) return refuse(state, t('refuse.noBody', { what: rest }));
         if (target.id === engine.currentBodyIndex(state)) return refuse(state, t('refuse.alreadyThere'));
         try {
@@ -1528,7 +1688,10 @@ export function activate(ctx) {
    */
   ctx.context(async () => {
     const doc = await ctx.state.get();
-    if (!doc) return '';
+    // Before the engine is touched. The document is `{}` rather than nothing
+    // for somebody who has never opened the game, so testing it for truth let
+    // every turn of every conversation load 400 KB of galaxy to say nothing.
+    if (!doc?.setup && !doc?.save) return '';
     await load();
 
     if (doc.setup) {
@@ -1536,7 +1699,6 @@ export function activate(ctx) {
         ? t('note.nameContext', { background: backgroundName(doc.setup.background) })
         : t('note.pickBackgroundContext');
     }
-    if (!doc.save) return '';
     // A closed game takes the world out of the prompt, because while that is in
     // front of the model every turn it goes on being a trading computer
     // whatever it was asked. It does not take out the way back in: with nothing
@@ -1555,7 +1717,29 @@ export function activate(ctx) {
     return `${t('note.language')}\n${note(state)}`;
   });
 
-  ctx.prompt(t('prompt.text', { language: t('note.language') }));
+  /**
+   * The fragment, in the language the setting names.
+   *
+   * `speak()` first, and that is the fix: the language is module state that
+   * nothing had set yet at this point, so a game set to Ukrainian registered
+   * the English fragment — ending "Answer the user in English." — and then
+   * told the model the opposite in the per-turn context of every game.
+   *
+   * It no longer names a language for the reply at all. This text is in the
+   * prompt of every conversation while the plugin is on, game or no game, and
+   * a standing order there answered "what can you do?" in Ukrainian for
+   * somebody who had asked in English — the app had to write a rule of its own
+   * claiming precedence over it. That instruction belongs to a game being
+   * played, so it lives in the context above, which is only there while one
+   * is.
+   */
+  speak();
+  ctx.prompt(t('prompt.text'));
+
+  // Counted for `accountDue`: which turn an account left by a press is owed to.
+  ctx.onTurnStart?.(() => {
+    turns += 1;
+  });
 
   /**
    * A language changed is a panel that has to be redrawn.
@@ -1577,6 +1761,47 @@ export function activate(ctx) {
    * that gets pressed, and a run is only written over from a row that says
    * whose run it is.
    */
+  /**
+   * The slots, from wherever LOAD was pressed.
+   *
+   * Three places, and only one of them used to work. With a run on screen or
+   * put away the list is behind that panel's sheet, and this opens it. With a
+   * commander half made the panel is the question, which has no sheet — so the
+   * button opened nothing, and after NEW GAME had thrown a run away the saved
+   * ones could not be reached until another commander had been launched. And
+   * with nothing in the document at all there was no panel to hang a list on.
+   *
+   * So the question is withdrawn rather than answered. Whatever run was under
+   * it is still there and comes back; with none, the menu is drawn for the
+   * slots alone. Nothing is lost by it: NEW GAME asks again.
+   */
+  async function openSlots(doc) {
+    armedRestart = false;
+    askingAmount = null;
+    deckOpen = false;
+    sheetView = 'load';
+
+    const kept = { ...doc };
+    delete kept.setup;
+    if (kept.save) {
+      slotMenu = false;
+      if (doc.setup) await save(kept);
+      else await paint(kept);
+      return { sheet: true };
+    }
+
+    // No run at all. A list of six empty rows is not worth a panel, and the
+    // question that was up is still the thing to answer.
+    if (!saves.list(ctx.dataDir()).some((entry) => entry.meta)) {
+      if (doc.setup) await paint(doc);
+      return doc.setup ? { status: t('saves.nothingSaved'), cards: true } : { status: t('ui.noGame') };
+    }
+    slotMenu = true;
+    if (doc.setup) await save(kept);
+    else await paint(kept);
+    return { sheet: true };
+  }
+
   ctx.onButton(async (key) => {
     await load();
     const doc = (await ctx.state.get()) ?? {};
@@ -1640,13 +1865,25 @@ export function activate(ctx) {
 
     if (key !== 'save' && key !== 'load') return { status: t('ui.moveGone') };
 
-    // A game that was put away still has a panel to draw — the menu — so this
-    // works closed as well as running. With nothing saved at all there is
-    // nothing to draw and nothing to claim, which is the honest answer.
-    if (!doc.save && !doc.setup) return { status: t('ui.noGame') };
-    if (key === 'save' && (doc.closed === true || !doc.save)) return { status: t('saves.notRunning') };
+    // A commander half made is not a run: there is nothing on screen to save,
+    // whatever is still in the document underneath the question.
+    if (key === 'save' && (doc.closed === true || !doc.save || doc.setup)) return { status: t('saves.notRunning') };
 
-    sheetView = key;
+    /**
+     * Not while somebody has the ship stopped.
+     *
+     * The fight takes the whole panel and its sheet holds the fight's own
+     * lists, so there are no slots to open here — and this used to open that
+     * sheet anyway and leave the panel set to come back on the slots.
+     */
+    if (doc.save && !doc.setup && doc.closed !== true && doc.fight && fight.current(doc.fight)) {
+      await paint(doc);
+      return { status: t('ui.settleFirst') };
+    }
+
+    if (key === 'load') return openSlots(doc);
+
+    sheetView = 'save';
     deckOpen = false;
     askingAmount = null;
     await paint(doc);
@@ -1717,6 +1954,9 @@ export function activate(ctx) {
         };
       }
 
+      // The card that goes to the slots instead of answering.
+      if (actionId === 'setup-load') return openSlots(doc);
+
       if (actionId.startsWith('background-')) {
         if (!doc.setup || doc.setup.background) return { status: t('setup.backgroundTaken') };
         const key = actionId.slice('background-'.length);
@@ -1760,7 +2000,7 @@ export function activate(ctx) {
        * exist under is that nothing is being played: below this line a missing
        * game is an error, and here it is the situation.
        */
-      if (actionId === 'resume' || (actionId === 'restart' && doc.closed === true)) {
+      if (actionId === 'resume' || (actionId === 'restart' && (doc.closed === true || !doc.save))) {
         askingAmount = null;
         const saved = doc.closed === true ? await read() : null;
         if (actionId === 'restart') {
@@ -1772,6 +2012,7 @@ export function activate(ctx) {
             return { status: t('ui.restartConfirm', { commander: saved.commanderName }) };
           }
           armedRestart = false;
+          slotMenu = false;
           await save({ setup: {} });
           return { status: t('ui.newRun'), cards: true };
         }
@@ -1839,7 +2080,9 @@ export function activate(ctx) {
         }
         const loaded = JSON.parse(held.save);
         deckOpen = false;
+        slotMenu = false;
         sheetView = 'market';
+        boardView = 'chart';
         // Everything the old document held is dropped: a fight in progress, a
         // half-made commander and a closed flag all belong to the run being
         // replaced, and carrying any of them over would be the new game
@@ -2059,6 +2302,24 @@ export function activate(ctx) {
       if (armedRestart) {
         armedRestart = false;
         await paint(doc);
+      }
+
+      /**
+       * A lost ship is looked at, not flown.
+       *
+       * The row of a wrecked run is NEW GAME and QUIT, but the sheet and the
+       * chart are still drawn behind it — that is where the log and the last
+       * position are read — and their rows and markers went on being
+       * pressable. A dead commander could buy a hold of water and jump to the
+       * next system. Nothing below this line is for a ship that is gone; the
+       * panel stops offering it as well, and this is for the press that was
+       * already on its way.
+       */
+      if (isWrecked(state)) {
+        askingAmount = null;
+        deckOpen = false;
+        await paint(doc);
+        return { status: t('ui.dead') };
       }
 
       /**
@@ -2332,7 +2593,12 @@ export function activate(ctx) {
           return { status: t('ui.moveGone') };
         }
         const line = messages([{ key: 'quest.completed', params: engine.questParams(state, quest) }], dict);
-        await save(withGame(doc, state, { narrate: line }));
+        // No account is left for the model. One is owed to the turn a press
+        // submits, and this press submits nothing — so it sat in the document
+        // and was read out over the next thing the player typed, which was
+        // then never carried out. The reward is in the position the model is
+        // given every turn.
+        await save(withGame(doc, state));
         return { status: line, sheet: true };
       }
 
@@ -2364,7 +2630,7 @@ export function activate(ctx) {
     if (doc.closed === true) return;
     await load();
     await paint(doc);
-  })();
+  })().catch((err) => ctx.log(`the saved game could not be drawn — ${err.message}`));
 }
 
 export function deactivate() {}

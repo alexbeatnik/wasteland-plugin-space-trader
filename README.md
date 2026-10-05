@@ -1,7 +1,7 @@
 # Space Trader
 
 The Palm OS classic, played in the chat window of [Wasteland Next](https://github.com/alexbeatnik/WastelandNext),
-with the model reading the position over your shoulder. Version 2.5.2.
+with the model reading the position over your shoulder. Version 2.5.5.
 
 Trade between 140 star systems whose prices move with tech level, government, economy and whatever
 crisis a planet is living through. Get stopped on the way, and fight it out a round at a time — the
@@ -467,6 +467,48 @@ scripts and the app's own tests expect. The directory has to be named exactly li
 
 `panel.mjs` and `view.mjs` are both pure — a state goes in, a document or a string comes out — and
 both read the same save, which is what stops the screen and the prompt describing two different runs.
+
+---
+
+## What changed in 2.5.5
+
+A review against the app's current plugin host. Every entry is something the panel refused and
+another way in did not — a typed move, a button under an old card, a press with nothing on screen —
+and each has a test in `tests/guards.test.mjs`.
+
+- **Fixed: a lost ship could be repaired back to life.** The engine has no notion of a wreck — a hull
+  of zero is a number to it — so `repair` typed at one docked at a yard mended it to full and the
+  dead commander flew on. The rows of its market and the markers of its chart also went on being
+  pressable behind NEW GAME and QUIT. A lost ship keeps its panel, because that is where the log and
+  the last position are read, and loses every control on it except the saved slots.
+- **Fixed: `new` from the model threw the run in progress away.** Only the longer phrasings were
+  refused, and `new` is the word the prompt itself teaches for starting a game: sent mid-run it
+  replaced the whole document with an unanswered question. It is refused like the others now, and
+  where a new game *is* allowed — over a run that was put away or lost — that run is kept until the
+  name is sent, which is the promise the NEW GAME button already made.
+- **Fixed: a move typed after a press could be swallowed.** A press leaves its account for the turn
+  its words start. A model that answered those words without calling either action left the account
+  in the document, and the next thing typed was answered with it instead of being carried out —
+  "buy 2 water" came back as a report of the purchase before it and bought nothing. An account is
+  now owed to exactly one turn; turning a contract in, which submits nothing, leaves none.
+- **Fixed: a game that was put away could still be played.** Typed moves spent credits and days in a
+  closed run, and its market was printed on request, with the menu drawn behind it.
+- **Fixed: the cards in the transcript.** What one did was never said: the app draws nothing from
+  the answer to a click, so the line has to go to the status bar it is handed. They could also be
+  pressed into a gunfight, a closed game or a wreck, and a card dealt in one system flew to "the
+  second body" of whichever system the ship was in by then.
+- **Fixed: Ukrainian was half applied.** The prompt was registered before anything had read the
+  setting, so a game set to Ukrainian got the English fragment, ending "Answer the user in English",
+  and was told the opposite in every turn of a game. The fragment no longer names a language for the
+  reply at all — it is in the prompt of every conversation, game or no game, and that order belongs
+  to a game being played, where the per-turn context already gives it. «лети до Nyle» and
+  «перелетіти до …» are understood: the preposition was being looked up as part of the name.
+- **Fixed: LOAD opened nothing while a commander was being made.** After NEW GAME had thrown a run
+  away the saved slots could not be reached until another commander had been launched. The button
+  withdraws the question and shows the slots, and the question carries a card of its own that goes
+  there, since its dialog has no close button.
+- **Fixed: `{sells}` on the sheet.** Cargo that pays more elsewhere read "Brax pays {sells}".
+- A session that never opens the game no longer loads the engine on every turn to say nothing.
 
 ---
 

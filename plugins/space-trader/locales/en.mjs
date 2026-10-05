@@ -88,9 +88,7 @@ which good, how many, which system, what it costs and what the risk is.
 
 Say what happened in one or two sentences. The screen is already in front of
 the user — do not read the tables back out, and never describe a screen you did
-not produce this turn.
-
-{language}`,
+not produce this turn.`,
 
   /* ---------- the panel ---------- */
 
@@ -138,10 +136,6 @@ not produce this turn.
   'panel.group.jobs.empty': 'nothing accepted — contracts are taken on the planet',
   'panel.group.board': 'THE JOB BOARD',
   'panel.group.board.empty': 'this port is offering nothing today',
-  'panel.group.inRange': 'WHERE IT PAYS MORE',
-  'panel.group.inRange.empty': 'nowhere in range that this run has been to pays better',
-  'panel.row.inRange.buy': 'buy at {price} · {system} pays {sells}, {fuel} fuel · {margin} a bay',
-  'panel.row.inRange.carry': '{held} aboard · {system} pays {sells}, {fuel} fuel · {margin} a bay better than here',
   'panel.group.inRange': 'WHERE IT PAYS MORE',
   'panel.group.inRange.empty': 'nowhere in range that this run has been to pays better',
   'panel.row.inRange.buy': 'buy at {price} · {system} pays {sells}, {fuel} fuel · {margin} a bay',
@@ -428,6 +422,7 @@ not produce this turn.
   'saves.failed': 'That slot could not be written.',
   'saves.unreadable': 'Slot {n} could not be read.',
   'saves.notRunning': 'There is no run to save. Load one, or start one.',
+  'saves.nothingSaved': 'No slot has a run in it.',
 
   /* ---------- the game put away ---------- */
 
@@ -479,6 +474,8 @@ not produce this turn.
   'setup.keep.label': 'KEEP FLYING',
   'setup.keep.note': 'Never mind — go back to the run in progress. Nothing has been thrown away.',
   'setup.kept': 'Back to {commander}, day {day}.',
+  'setup.load.label': 'LOAD A SAVED RUN',
+  'setup.load.note': 'Never mind the new commander — open the slots and fly one of the runs saved there.',
   'setup.nothingToKeep': 'There is no run to go back to.',
   'setup.backgroundTaken': 'That question has been answered.',
   'setup.intro.words': 'so where are we starting?',
@@ -508,6 +505,8 @@ not produce this turn.
   'ui.cannotAfford': 'Not one is affordable.',
   'ui.holdFull': 'There is no room in the hold.',
   'ui.dead': 'The ship did not survive it.',
+  'ui.settleFirst': 'Not while somebody has the ship stopped — settle that first.',
+  'ui.cardStale': 'That card was dealt somewhere else. Ask for the screen again.',
   'ui.noGame': 'No game is saved. Start one and it begins at a random system with 1000 credits.',
 
   /* ---------- notes to the model ---------- */

@@ -230,6 +230,9 @@ test('the prompt names the refusal it exists to prevent, in both languages', () 
   assert.match(uk['prompt.text'], /не вмію грати/i);
   for (const table of [en, uk]) {
     assert.match(table['prompt.text'], /space_trader_move/);
-    assert.match(table['prompt.text'], /\{language\}/);
+    // No hole for a reply language, and no sentence naming one. The fragment is
+    // in the prompt of every conversation, game or no game; the language of the
+    // reply is said in the per-turn context, which is only there during one.
+    assert.doesNotMatch(table['prompt.text'], /\{\w+\}/);
   }
 });

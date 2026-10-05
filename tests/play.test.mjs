@@ -232,7 +232,9 @@ test('the system screen lists everywhere in the system, and offers the crossing'
   assert.match(result.summary, /ore/i);
   assert.match(result.summary, /impulse/i);
 
-  const crossing = result.choices.find((choice) => choice.id === 'body:1');
+  // The id carries the system it was dealt in as well as the body, so a card
+  // scrolled back to from another system is refused rather than flown.
+  const crossing = result.choices.find((choice) => choice.id.startsWith('body:1:'));
   assert.ok(crossing, 'nothing offered to cross to the belt');
   assert.match(crossing.note, /day/);
 });
@@ -459,7 +461,7 @@ test('a system nobody has heard of is refused with its name in the sentence', as
 test('a warp button does the jump and reports it in one line', async () => {
   const app = await started();
   const chart = await app.show('chart');
-  const line = await app.click(chart.choices[0].id);
+  const { summary: line } = await app.click(chart.choices[0].id);
   // A click has only the status bar, so what it says has to fit on it.
   assert.match(line, /^Arrived at /);
   assert.ok(line.length < 120, `too long for a status line: ${line.length}`);

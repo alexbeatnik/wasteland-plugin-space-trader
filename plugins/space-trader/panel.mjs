@@ -611,10 +611,13 @@ function marketGroups(engine, dict, state) {
     .map((lead) => ({
       label: dict.goodName(lead.id),
       note: lead.carrying
+        // `sells`, which is what the phrase calls the price over there. It was
+        // passed as `price`, the hole it fills was never filled, and every
+        // row of cargo read "Brax pays {sells}, 10 fuel".
         ? t('panel.row.inRange.carry', {
           held: lead.aboard,
           system: lead.best.sys.nameId,
-          price: digits(lead.best.price),
+          sells: digits(lead.best.price),
           fuel: lead.best.fuel,
           margin: money(lead.margin),
         })
@@ -931,6 +934,30 @@ export function moves(engine, dict, state, { armedRestart = false, boardView = '
   return list;
 }
 
+/**
+ * The same lists and the same map, with nothing on them to press.
+ *
+ * A lost ship keeps its panel — the log and the last position are worth
+ * reading, and the game-over screen is where they are read. What it must not
+ * keep is the controls: the rows of a market and the markers of a chart are
+ * moves, and a commander who is dead was still being offered them.
+ */
+function inertGroups(groups) {
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map(({ action, ...row }) => row),
+  }));
+}
+
+function inertBoard(drawn) {
+  return {
+    ...drawn,
+    points: drawn.points.map((point) => ({ ...point, action: '' })),
+    // The routes went with the moves they stood for.
+    links: [],
+  };
+}
+
 /* ---------- the whole document ---------- */
 
 /**
@@ -1018,7 +1045,11 @@ export function snapshot(engine, dict, state, options = {}) {
     meters,
     fields,
     tags,
-    groups: groupsFor(engine, dict, state, sheetView, { slots, running: !wrecked }),
+    // The slots stay live on a wreck: loading another run is exactly what a
+    // lost one is for. Everything else behind the sheet is there to be read.
+    groups: wrecked && sheetView !== 'save' && sheetView !== 'load'
+      ? inertGroups(groupsFor(engine, dict, state, sheetView, { slots, running: false }))
+      : groupsFor(engine, dict, state, sheetView, { slots, running: !wrecked }),
     actions: moves(engine, dict, state, { armedRestart, boardView }),
     /**
      * One board, two maps.
@@ -1028,7 +1059,9 @@ export function snapshot(engine, dict, state, options = {}) {
      * for the row. Which one is up is where the player last looked, and it
      * survives a repaint for the same reason the open sheet does.
      */
-    board: boardView === 'system' ? systemBoard(engine, dict, state, image) : board(engine, dict, state, image),
+    board: wrecked
+      ? inertBoard(boardView === 'system' ? systemBoard(engine, dict, state, image) : board(engine, dict, state, image))
+      : boardView === 'system' ? systemBoard(engine, dict, state, image) : board(engine, dict, state, image),
     /**
      * The deck, while it is open and there is a market to deal from.
      *
@@ -1175,7 +1208,7 @@ export function menuScene(engine, dict, state, { armedRestart = false, slots = [
  * composer is a message, a message reaches the model first, and a small model
  * asked to pass a word through sometimes answers it instead.
  */
-export function setupScene(setup, { canCancel = false } = {}) {
+export function setupScene(setup, { canCancel = false, canLoad = false } = {}) {
   if (!setup.background) {
     /**
      * A card to walk away by, when there is something to walk back to.
@@ -1199,6 +1232,13 @@ export function setupScene(setup, { canCancel = false } = {}) {
     if (canCancel) {
       items.push({ label: t('setup.keep.label'), note: t('setup.keep.note'), action: 'setup-cancel' });
     }
+    // And one to the saved slots, for the same reason and by the same means.
+    // After NEW GAME has written a run off there is nothing to keep flying,
+    // and a slot was the only way back that this question did not offer.
+    // Seven cards at most; the host draws eight.
+    if (canLoad) {
+      items.push({ label: t('setup.load.label'), note: t('setup.load.note'), action: 'setup-load' });
+    }
     return {
       title: t('setup.title'),
       subtitle: t('setup.subtitle.background'),
@@ -1220,11 +1260,10 @@ export function setupScene(setup, { canCancel = false } = {}) {
     // The same id as the field, so a player who dismissed it has the way back
     // that a dismissible window has to have — and, while there is still a run
     // in the document, the way out of the whole question.
-    actions: canCancel
-      ? [
-        { id: 'name', label: t('setup.name.button'), hint: t('setup.name.buttonHint') },
-        { id: 'setup-cancel', label: t('setup.keep.label'), hint: t('setup.keep.note') },
-      ]
-      : [{ id: 'name', label: t('setup.name.button'), hint: t('setup.name.buttonHint') }],
+    actions: [
+      { id: 'name', label: t('setup.name.button'), hint: t('setup.name.buttonHint') },
+      ...(canCancel ? [{ id: 'setup-cancel', label: t('setup.keep.label'), hint: t('setup.keep.note') }] : []),
+      ...(canLoad ? [{ id: 'setup-load', label: t('setup.load.label'), hint: t('setup.load.note') }] : []),
+    ],
   };
 }
